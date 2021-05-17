@@ -97,6 +97,7 @@ Launch | Build | CPU     | benchmark seconds | speedup  | per year
 
 
 ## Benchmark: [Doom Frames per Second](https://www.complang.tuwien.ac.at/misc/doombench.html)
+
 Launch | Build | CPU     | benchmark fps | speedup  | per year
 -------|-------|---------|---------------|----------|---------
 1992   |  1994 | 486DX2/66 | 35fps       |  1.0     |
