@@ -59,7 +59,7 @@ for half the cost in ~2017, total training time for my birdie
 image classifier went from about 62 minutes to 25 minutes.
 
 ## Old Rig
-+ GPU: Gigabyte GTX 1080 (8GB RAM / launched 2017)
++ GPU: Gigabyte GTX 1080 (8GB RAM / launched 2016)
 + CPU: Core i5 3570K (4 core / launched 2012) - [cpumark of 4,921](https://www.cpubenchmark.net/cpu.php?cpu=Intel+Core+i5-3570K+%40+3.40GHz&id=828)
 
 ## New Rig
