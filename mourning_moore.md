@@ -61,12 +61,12 @@ image classifier went from about 62 minutes to 25 minutes.
 ## Old Rig
 + GPU: Gigabyte GTX 1080 (8GB RAM / launched 2016)
 + CPU: Core i5 3570K (4 core / launched 2012) - [cpumark of 4,921](https://www.cpubenchmark.net/cpu.php?cpu=Intel+Core+i5-3570K+%40+3.40GHz&id=828)
-  NB: This rig as configured with 4x8GB DDR3 DIMMs showed actual cpumark of 5,454.
+> NB: This rig as configured with 4x8GB DDR3 DIMMs showed actual cpumark of 5,454.
 
 ## New Rig
 + GPU: Geforce RTX 3090 (24GB RAM / launched 2020)
 + CPU: Ryzen 5900 (12 core / launched 2020, AMD) - [cpumark of 38,110](https://www.cpubenchmark.net/cpu.php?cpu=AMD+Ryzen+9+5900&id=4272)
-  NB: This rig as configured showed actual cpumark from 31.5k (1x16GB) to 34k (2x8GB @ 3200Mhz).
+> NB: This rig showed actual cpumark from 31.5k (1x16GB) to 34k (2x8GB @ 3200Mhz).
 
 ## Fastai CNN training (resnet34, fp32 over 67k images)
 
@@ -123,6 +123,7 @@ full-time ML research to justify the cost of the upgrade
 Maybe my old rig is good enough for me and this beast can go to
 some intense gamer or VR enthusiast.
 
+*Final Result:* SOLD to a VR enthusiast.
 
 # Appendix
 
@@ -142,8 +143,9 @@ the expected performance of a Ryzen 5900.  On average, adding a second DIMM
 boosted speed up times vs my old rig from 2.4x to 2.8x (16% speedup) over
 a range of parameters for CNN training.  I would love to know if having a
 dual channel bank would improve things even more, but the motherboard (a B550A)
-was overly finicky when it came to RAM and would not even accept a perfectly
-matched kit in the first bank;  it pretended the second DIMM was not there!
+seemed to be somewhat defective and refused to accept a perfectly matched
+kit in the first bank.  It's possible the CPU would have shown its full
+potential with a new motherboard.
 
 ### Mixed Precision Training
 
