@@ -9,9 +9,9 @@ training image recognition models for different kinds of birds based
 on labeled photos from Cornell's [Macaulay Library](https://www.macaulaylibrary.org/).
 Thanks to crazy python compiler tricks like [JAX](https://github.com/google/jax),
 [pytorch](https://pytorch.org/) and Nvidia's [CUDA](https://developer.nvidia.com/cuda-toolkit),
-you can write codes in beautifully short Python and they gets
+you can write codes in beautifully short Python and they get
 jit’d into massively parallel programs that take advantage of thousands
-of GPU, CPU, or TPU cores and blindingly fast matrix multiplies.
+of GPU, CPU, or TPU cores and their blindingly fast matrix multiplies.
 
 My computer is about 8 years old, from a time when good consumer CPUs had 4 cores,
 and long before those instantaneous matrix multiplying tensor cores were a
@@ -47,7 +47,7 @@ Unfortunately, those latest-and-greatest parts, especially the GPUs
 were incredibly difficult to *get*, often simply unavailable or
 fetching more than 2x their MSRP in the [secondary
 markets](https://offer.ebay.com/ws/eBayISAPI.dll?ViewBidsLogin&item=254885216032).
-So I ordered a pre-built one of the few ways you can actually get an RTX 3090.
+So I ordered a pre-built, one of the few ways you could actually get an RTX 3090.
 When I got it, I loaded up the monster
 with [Ubuntu 21.04](https://ubuntu.com/blog/ubuntu-21-04-is-here)
 straight off the presses, the bleeding edge [CUDA
@@ -61,12 +61,14 @@ image classifier went from about 62 minutes to 25 minutes.
 ## Old Rig
 + GPU: Gigabyte GTX 1080 (8GB RAM / launched 2016)
 + CPU: Core i5 3570K (4 core / launched 2012) - [cpumark of 4,921](https://www.cpubenchmark.net/cpu.php?cpu=Intel+Core+i5-3570K+%40+3.40GHz&id=828)
+  NB: This rig as configured with 4x8GB DDR3 DIMMs showed actual cpumark of 5,454.
 
 ## New Rig
 + GPU: Geforce RTX 3090 (24GB RAM / launched 2020)
-+ CPU: Ryzen 5900 (12 core / launched 2020, AMD) - [cpumark of 39,478](https://www.cpubenchmark.net/cpu.php?cpu=AMD+Ryzen+9+5900X&id=3870)
++ CPU: Ryzen 5900 (12 core / launched 2020, AMD) - [cpumark of 38,110](https://www.cpubenchmark.net/cpu.php?cpu=AMD+Ryzen+9+5900&id=4272)
+  NB: This rig as configured showed actual cpumark from 31.5k (1x16GB) to 34k (2x8GB @ 3200Mhz).
 
-## Fastai CNN training (resnet34 over 67k images)
+## Fastai CNN training (resnet34, fp32 over 67k images)
 
 Build Year | Build | batch size | CNN Training+Validation one epoch (seconds) | as MM:SS | speedup | speedup per year  
 -----------|-------|-----------------------------------------|-------|---------|---------------|------
@@ -107,10 +109,145 @@ Launch | Build | CPU     | benchmark fps | speedup  | per year
 # Coda
 
 After futzing about with my old rig, I discovered the cpu cooler
-had gotten knocked off and just needed some new thermal paste.  So
-what is one to do with an expensive, noisy, yet only twice as fast
-new machine?  Am I going to be doing enough full-time ML research
-to justify the cost of the upgrade (which still needs some Noctuas
-to replace the shitty OEM fans)?  Maybe my old rig is good enough
-for me and this beast can go to some intense gamer or
-GPT enthusiast.
+had gotten knocked off and just needed some new thermal paste.
+
+The RTX 3090 is a beautiful piece of hardware whose RAM allows
+training larger networks and larger batch sizes which can improve
+training stability.
+
+However, is it worth it to me to have this prebuilt at a markup
+vs waiting a year for MSRP parts to become available when the
+result is (only) a 2.5x speed up?  Am I going to be doing enough
+full-time ML research to justify the cost of the upgrade
+(which still needs some Noctuas to replace the shitty OEM fans)?
+Maybe my old rig is good enough for me and this beast can go to
+some intense gamer or VR enthusiast.
+
+
+# Appendix
+
+## Notes on ways to boost training performance.
+
+### RAM: More DIMMs and Memory Overclocking
+
+The Ryzen 5900 I received averaged only 31,628 on runs of CPUMark,
+which was more similar to reports of 2019's Ryzen 3900(X) processors
+which ran at medians of 30,861 and 32,899 respectively than to the
+expected median Ryzen 5900 speed of 38,111.
+
+Replacing the single DIMM that came with the prebuilt with two fast DIMMs
+(each in its own bank, unfortunately) running at 3200Mhz with 13.75ns CAS
+latency was able to bump up CPUMark to 34k, but this was still 10% lower than
+the expected performance of a Ryzen 5900.  On average, adding a second DIMM
+boosted speed up times vs my old rig from 2.4x to 2.8x (16% speedup) over
+a range of parameters for CNN training.  I would love to know if having a
+dual channel bank would improve things even more, but the motherboard (a B550A)
+was overly finicky when it came to RAM and would not even accept a perfectly
+matched kit in the first bank;  it pretended the second DIMM was not there!
+
+### Mixed Precision Training
+
+Modern NVidia cards can efficiently compute on half width
+(16 bit) floats with those shiny tensor cores.  That means
+faster results, bigger models and larger batch sizes can be
+trained in the same video RAM envelope and that PCIe bandwidth
+use is reduced.  This difference was negligible for smaller
+networks and batch sizes, but noticeable for larger batches
+and bigger networks.
+
+Below are timings for one epoch runs on the new rig with the
+single factory DIMM show speedups of using fp16 ranging
+from 7% to 30%:
+
+batch size | precision | model | epoch time | mixed precision improvement
+-----------|-----------|-------|------------|------------
+128 | fp16 | resnet34  | 1:58 | 7%
+128 | fp32 | resnet34  | 2:06 |  -
+128 | fp16 | resnet50  | 2:18 | 15% 
+128 | fp32 | resnet50  | 2:43 |  -
+128 | fp16 | resnet101 | 2:58 | 30%
+128 | fp32 | resnet101 | 3:52 |  -
+
+### Better CPU
+
+I suspect either my Ryzen 5900 or its memory subsystem was problematic
+given the reported CPUMark (10-20% below expectations).
+
+The Ryzen 5900 (cpumark 38110) is a power limited OEM version of the
+Ryzen 5900X (cpumark 39471) so swapping to a 5900X may give some performance boost
+at the cost of power.
+
+NVidia Nsight showed typical CPU utilization during training of 30-40%, so
+it's possible fast RAM is much more important than more raw CPU processing.
+For that reason alone, jumping to ThreadRipper which supports four lanes of
+memory may beat running Ryzen processors which only support two memory lanes.
+
+### Host Memory Pinning
+
+In order to reduce copy times, raw pytorch users use a technique
+called host memory pinning.  However, in the version of fastai I was
+using, the `pin_memory` option didn't seem to work.
+
+
+### More PCIe lanes
+
+The B550A motherboard only has 8x PCIe 4.0 lanes for the
+(one) graphics card slot instead of 16x PCIe 4.0.
+Nonetheless, my PCIe lanes were never very highly utilized
+during training, so that did not seem to be a bottleneck.
+
+## Benchmark Code
+
+The benchmark I ran was fastai resnet training based on 4GB of jpegs from 246 bird
+species from the Macaulay Database, each with between 50 and 450 examples.
+A csv mapped jpeg images to labels, and the benchmark code was pretty standard fastai:
+
+```py
+
+from fastai.vision.all import *
+import pandas as pd
+
+bdf = pd.read_csv("simple_birder_split_df.csv")
+
+def get_birdie_common_name(r):
+    return r["Common Name"]
+
+def get_birdie_filename(r):
+    return r['fname']
+
+def split_by_label(label_column='split'):
+    def _inner(df: pd.DataFrame):
+        if not isinstance(df, pd.DataFrame):
+            print(f"This splitter is meant to work on dataframes with a column {class_name_column}")
+        train_bools = (df.loc[:, label_column] == 'train')
+        return df.loc[train_bools].index.values, df.loc[~train_bools].index.values, 
+    return _inner
+
+dblock = DataBlock(
+    blocks = (ImageBlock, CategoryBlock),
+    get_x = get_birdie_filename,
+    get_y = get_birdie_common_name,
+    splitter = split_by_label(),
+    item_tfms = RandomResizedCrop(460, min_scale=0.85),
+    batch_tfms = aug_transforms(size=224, min_scale=0.8) + [Normalize.from_stats(*imagenet_stats)]
+)
+dsets = dblock.datasets(bdf)
+
+# The interesting outputs are the *timings* from this cell.
+for batch_size in [64, 128, 256]:
+    dls = dblock.dataloaders(bdf, bs=batch_size)
+    for (model_name, model) in [("resnet34", resnet34),
+                               ("resnet50", resnet50),
+                               ("resnet101", resnet101)]:
+        print(f"bs={batch_size}, fp16, {model_name}")
+        learn16 = cnn_learner(dls, model, metrics=error_rate)
+        learn16.to_fp16()
+        learn16.fit_one_cycle(2, lr_max=3e-2)
+        learn16 = None
+        print(f"bs={batch_size}, fp32, {model_name}")
+        learn32 = cnn_learner(dls, model, metrics=error_rate)
+        learn32.to_fp32()
+        learn32.fit_one_cycle(2, lr_max=3e-2)
+        learn32 = None
+ ```
+
