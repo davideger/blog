@@ -1,3 +1,12 @@
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-Z2DVBLC0CV"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-Z2DVBLC0CV');
+</script>
+
 # Mourning Moore, or: Is that sexy RTX 3090 really worth [$3000](https://offer.ebay.com/ws/eBayISAPI.dll?ViewBidsLogin&item=254885216032)?
 
 May 2021
