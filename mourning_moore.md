@@ -77,7 +77,7 @@ image classifier went from about 62 minutes to 25 minutes.
 + CPU: Ryzen 5900 (12 core / launched 2020, AMD) - [cpumark of 38,110](https://www.cpubenchmark.net/cpu.php?cpu=AMD+Ryzen+9+5900&id=4272)
 > NB: This rig showed actual cpumark from 31.5k (1x16GB) to 34k (2x8GB @ 3200Mhz).
 
-## Fastai CNN training (resnet34, fp32 over 67k images)
+## Fastai CNN training (resnet34, fp32 over 67k jpegs)
 
 Build Year | Build | batch size | CNN Training+Validation one epoch (seconds) | as MM:SS | speedup | speedup per year  
 -----------|-------|-----------------------------------------|-------|---------|---------------|------
@@ -138,24 +138,6 @@ some intense gamer or VR enthusiast.
 
 ## Notes on ways to boost training performance.
 
-### RAM: More DIMMs and Memory Overclocking
-
-The Ryzen 5900 I received averaged only 31,628 on runs of CPUMark,
-which was more similar to reports of 2019's Ryzen 3900(X) processors
-which ran at medians of 30,861 and 32,899 respectively than to the
-expected median Ryzen 5900 speed of 38,111.
-
-Replacing the single DIMM that came with the prebuilt with two fast DIMMs
-(each in its own bank, unfortunately) running at 3200Mhz with 13.75ns CAS
-latency was able to bump up CPUMark to 34k, but this was still 10% lower than
-the expected performance of a Ryzen 5900.  On average, adding a second DIMM
-boosted speed up times vs my old rig from 2.4x to 2.8x (16% speedup) over
-a range of parameters for CNN training.  I would love to know if having a
-dual channel bank would improve things even more, but the motherboard (a B550A)
-seemed to be somewhat defective and refused to accept a perfectly matched
-kit in the first bank.  It's possible the CPU would have shown its full
-potential with a new motherboard.
-
 ### Mixed Precision Training
 
 Modern NVidia cards can efficiently compute on half width
@@ -168,7 +150,7 @@ and bigger networks.
 
 Below are timings for one epoch runs on the new rig with the
 single factory DIMM show speedups of using fp16 ranging
-from 7% to 30%:
+from 7% to 30%.
 
 batch size | precision | model | epoch time | mixed precision improvement
 -----------|-----------|-------|------------|------------
@@ -179,33 +161,113 @@ batch size | precision | model | epoch time | mixed precision improvement
 128 | fp16 | resnet101 | 2:58 | 30%
 128 | fp32 | resnet101 | 3:52 |  -
 
-### Better CPU
+### Front loading JPEG Decompression (on CPU limited systems)
 
-I suspect either my Ryzen 5900 or its memory subsystem was problematic
-given the reported CPUMark (10-20% below expectations).
+A lot of the CPU compute in my benchmark is spent de-compressing
+JPEGs and preparing the tensors of training data.  While this wasn't
+an issue for the 5900x, which rarely hit 40% CPU utilization, this
+was certainly an issue for my 4 core Intel which was pegged
+at 100% utilization the whole time.  4GB of training
+JPEGs decompresses into 51GB of training PPMs.  Over the SATA 3 in
+my old rig with maximal line rate of 600MB/s, this puts the lower bound
+for simply reading the whole uncompresed data set on the old rig at 1:25.
+Reading the compressed data set would be only 0:07.  However, because the
+old rig was extremely CPU limited, doing this preprocessing separately
+(which took 3:06 wall time) typically yield much improved training times,
+especially on large batch sizes where the GPU had been idling, waiting for
+the CPU to render (and augment) each batch of JPEG training data.
 
-The Ryzen 5900 (cpumark 38110) is a power limited OEM version of the
-Ryzen 5900X (cpumark 39471) so swapping to a 5900X may give some performance boost
-at the cost of power.
+input |batch size | precision | model | epoch time | preprocessing improvement
+------|-----------|-----------|-------|------------|---------------------------
+jpg | 32 | fp16 | resnet34 | 4:53 |
+ppm | 32 | fp16 | resnet34 | 4:37 |  5%
+jpg | 32 | fp32 | resnet50 | 7:20 |
+ppm | 32 | fp32 | resnet50 | 6:58 |  5%
+jpg | 128 | fp16 | resnet34 | 4:55 |
+ppm | 128 | fp16 | resnet34 | 3:55 |  20%
+jpg | 128 | fp32 | resnet34 | 4:59 |
+ppm | 128 | fp32 | resnet34 | 4:10 | 17%
 
-NVidia Nsight showed typical CPU utilization during training of 30-40%, so
-it's possible fast RAM is much more important than more raw CPU processing.
-For that reason alone, jumping to ThreadRipper which supports four lanes of
-memory may beat running Ryzen processors which only support two memory lanes.
+### CPU and System Cooling
+
+Training can run your system hot, and the last thing you want is
+to thermal throttle your CPU or GPU to half its rated speed.
+Make sure you're efficiently getting heat off of your CPU and out
+of your case.  When I started, I didn't have sufficient airflow
+and on some runs lost 20 seconds to thermal throttling.
+
+### Larger Batch Sizes
+
+Bigger batch sizes offer both more efficient use of your GPU cores and
+better batch normalization to make your training more stable.
+They also improve running times and are a good reason to get more VRAM
+on your GPU.  On my old rig:
+
+input |batch size | precision | model | epoch time | preprocessing improvement
+------|-----------|-----------|-------|------------|---------------------------
+ppm | 32 | fp16 | resnet34 | 4:37 |
+ppm | 64 | fp16 | resnet34 | 3:55 | 15% 
+ppm | 32 | fp32 | resnet34 | 4:34 |
+ppm | 64 | fp32 | resnet34 | 4:13 |  8%
+ppm | 32 | fp16 | resnet50 | 6:02 |
+ppm | 64 | fp16 | resnet50 | 5:28 |  9%
+ppm | 32 | fp32 | resnet50 | 6:58 |
+ppm | 64 | fp32 | resnet50 | OOM  |  this is why you want a 3090.  
+
+### Faster and More PCIe lanes
+
+The B550A motherboard on the pre-built only had 8x PCIe 4.0 lanes for
+the (one) graphics card slot instead of 16x PCIe 4.0, but nonetheless
+those lanes were never very highly utilized.  Doubling the number of
+lanes would double the speed of transfers, though Tim Dettmers advises
+that this portion of your time is relatively small compared to the rest of your training.
+
+### Better CPU and RAM
+
+NVidia Nsight showed typical CPU utilization during training
+of 30-40%, and most of that spent on JPEG decoding, so my guess
+is that CPU cores were not a big limiting factor in training time
+on the new rig, though going to a 5950X for its boost clock may be
+worth the investment.  More memory lanes and overclocked RAM are
+likely far more important for this data intensive benchmark.
+
+The Ryzen series of processors offers up to 2 lanes of memory and the Threadrippers offer 4 lanes.
+Due to a defective motherboard, I was only able to test the Ryzen 5900 with a single lane
+of memory and observed performance far below expected CPU performance seen on Passmark (by 10-20%!)
+
+Chip  |   CPU Mark | Single Thread | Clock | Turbo  | RAM Config | Memory Lanes | TDP
+------|------------|---------------|-------|--------|------------|--------------|-------
+Core i5 3570K (observed)  | 5,472 | 2,211 MOps/s | 3.4Ghz | 3.8 GHz | 4x 8GB DDR3 @1600Mhz, 13.25 ns min CAS | 2 | 77W
+Ryzen 5900 (observed) | 31,581 | 3,536 MOps/s  | 3.0 GHz | 4.7 GHz  | 1x 16GB DDR4 @3200Mhz, 14.75 ns min CAS  | 1 | 65W
+Ryzen 5900 (observed) | 33,802 | 3,536 MOps/s  | 3.0 GHz | 4.7 GHz  | 2x 16GB DDR4 @3200Mhz (in 2 banks) | 1 | 65W
+Ryzen 5900 |  38,000 | 3,526 MOps/s | 3.0 GHz | 4.7 GHz | average | 2 | 65W
+Ryzen 5900X | 39,479 | 3,494 MOps/s  | 3.7 GHz | 4.8 GHz | average | 2 | 105W
+Ryzen 5950X | 46,118 | 3,499 MOps/s  | 3.4 GHz | 4.9 GHz | average | 2 | 105W
+ThreadRipper 3970X | 64,228 | 2,711 MOps/s | 3.7 GHz | 4.5 GHz | average | 4 | 280W
+
+Replacing the single DIMM that came with the prebuilt with two fast DIMMs
+(each in its own bank, unfortunately) running at 3200Mhz with 13.75ns CAS
+latency was able to bump up CPUMark to 34k, but this was still 10% lower than
+the expected performance of a Ryzen 5900.  On average, adding a second DIMM
+boosted speed up times vs my old rig from 2.4x to 2.8x (16% speedup) over
+a range of parameters for CNN training.  I would love to know if having a
+dual channel bank would improve things even more, but the motherboard (a B550A)
+seemed to be somewhat defective and refused to accept a perfectly matched
+kit in the first bank.  It's possible the CPU would have shown much greater performance
+with a new motherboard.
+
+On fast memory:  According to [this article](https://www.techspot.com/article/2140-ryzen-5000-memory-performance/),
+getting more ranks and channels with high Mhz (-3200 or -3600) and low CAS RAM is your best bet for speeding up your CPU, and the author suggests you try to do this by filling up all four DIMM slots in your rig.
+[This article](https://www.igorslab.de/en/performance-secret-tip-for-gamers-memory-ranks-in-theory-and-practice-with-cyberpunk-2077/3/)
+runs benchmarks showing more ranks and channels leads to more performance (on average 5%) but also
+warns that figuring out the number of ranks on any given DIMM you might buy is basically impossible due to marketing obfuscation, and even after installing it, micro-tuning the timings can make a sizable difference (though you'll likely agonize through a non-POSTing machine many times while you try to tune it).
+
 
 ### Host Memory Pinning
 
 In order to reduce copy times, raw pytorch users use a technique
 called host memory pinning.  However, in the version of fastai I was
 using, the `pin_memory` option didn't seem to work.
-
-
-### More PCIe lanes
-
-The B550A motherboard only has 8x PCIe 4.0 lanes for the
-(one) graphics card slot instead of 16x PCIe 4.0.
-Nonetheless, my PCIe lanes were never very highly utilized
-during training, so that did not seem to be a bottleneck.
 
 ## Benchmark Code
 
