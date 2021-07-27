@@ -1,12 +1,3 @@
-<!-- Global site tag (gtag.js) - Google Analytics -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-Z2DVBLC0CV"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-Z2DVBLC0CV');
-</script>
-
 # Mourning Moore, or: Is that sexy RTX 3090 really worth [$3000](https://offer.ebay.com/ws/eBayISAPI.dll?ViewBidsLogin&item=254885216032)?
 
 May 2021
@@ -114,6 +105,15 @@ Launch | Build | CPU     | benchmark fps | speedup  | per year
 1992   |  1994 | 486DX2/66 | 35fps       |  1.0     |
 1994   |  1997 | Pentium 100 | 73fps     |  2x      |  1.43x
 1998   |  1999 | Pentium II 450 | 129fps |  3.68x   |  1.24x
+
+# End of Moore's Law
+
+In their latest edition of [Computer Architecture: A Quantitative Approach](https://www.amazon.com/Computer-Architecture-Quantitative-Approach-Kaufmann/dp/0128119055/) Hennesy and Patterson summ up what I've observed with a single
+devastating chart:
+
+![History of CPU Performance](cpu_history_thumbnail.PNG)
+
+Silicon's not getting faster (frequency wise), and there's a limited amount of miniaturization that will happen.  The big players have already leaned hard into speculative, out of order, superscalar architectures and throwing more cores at the problem.  Future performance improvements are likely to come only with quite specialized hardware (systolic arrays for example to do mat muls in TPU, computing in memory, or stacked VRAM to reduce memory latency) and figuring out how to make "[The top of the stack](https://science.sciencemag.org/content/368/6495/eaam9744)" more efficient with, for instance, JIT'ing infrastructure like [JAX+XLA](https://github.com/google/jax).
 
 # Coda
 
