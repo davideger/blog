@@ -194,7 +194,7 @@ Why do we land in this heartbreak of disappointment?
 
 While the `jit`'d version of our piecewise function *on its own* is faster, the type it
 returns is not a Python `float`, it's a
-`type(fn_jit(5)) == google3.third_party.tensorflow.compiler.xla.python.xla_extension.DeviceArray`.
+`type(fn_jit(5)) == tensorflow.compiler.xla.python.xla_extension.DeviceArray`.
 
 This specialized type is optimized for being stored and computed on a device that does all the numeric
 computation (GPU, TPU, AVX registers) and usually is not manipulated by the Python interpreter at all.
@@ -261,6 +261,7 @@ example the actual review text):
 We'll have two goals for our summarization benchmark:
 
 a. Select a few diverse reviews to show on the first page.
+
 b. Calculate this restaurant's rank vs all other restaurants for
    each rating aspect: "atmosphere", "food", "speed", "location", and "friendliness."
 
@@ -270,7 +271,8 @@ choose which reviews to show:
 
 ```py
 def pd_get_representative_reviews(df, depth=2):
-  return df[df.language == 'en'].sort_values(by=['stars', 'review_age_weeks']).groupby('stars').head(depth)
+  return df[df.language == 'en'].sort_values(
+      by=['stars', 'review_age_weeks']).groupby('stars').head(depth)
 ```
 
 In polars, the equivalent code is thankfully very similar (though if
@@ -279,14 +281,15 @@ will make this code *even* faster):
 
 ```py
 def pl_get_representative_reviews(df, depth=2):
-  return df[df.language == 'en'].sort(['stars', 'review_age_weeks']).groupby('stars').head(depth).sort(['stars', 'review_age_weeks'])
+  return df[df.language == 'en'].sort(
+      ['stars', 'review_age_weeks']).groupby('stars').head(depth).sort(['stars', 'review_age_weeks'])
 ```
 
 After that, we'll use identical code for calcluating each listing's aspect ranks; we'll
 go into that later.  Benchmarking these two routines against 25,000 dataframes
-which follow the sort of Zipfian review count distribution you might expect —
-a few popular restaurants with thousands of reviews, many restaurants with
-only one or two — confirms that Polars is a real winner here,
+following a Zipfian review count distribution you might expect —
+a few popular restaurants with thousands of reviews, most restaurants only having
+one or two reviews — confirms that Polars is a real winner here,
 at least running on a free 2-core Google colab instance:
 
 ```
@@ -474,3 +477,21 @@ were a *heavy cost* every time we hopped to a new core.  Ray doesn't eliminate
 that cost entirely, but it sure softens the blow and lets us spend more time
 exploring our data, faster, and less time obsessing about how we might optimize
 our current algorithm, or accidentally get burned trying to do so!
+
+
+**What do your Reviews Dataframes look like, really?**
+
+You can run the code yourself 😃
+
+Download it from [here](reviews) and run `python3 <run_synthetic_benchmark.py`
+
+When I ran it I saw:
+
+```
+15257 listings with > 0 and <= 2 reviews
+4297 listings with > 2 and <= 10 reviews
+1287 listings with > 10 and <= 100 reviews
+143 listings with > 100 and <= 1000 reviews
+10 listings with > 1000 and <= 10000 reviews
+1 listings with > 10000 and <= 100000 reviews
+```
