@@ -310,8 +310,7 @@ CPU times: user 2min 10s, sys: 23.8 s, total: 2min 34s
 Wall time: 2min 16s
 ```
 
-This is *great*!  We getting a **3.7x** speed up wall time wise and a **2.5x** 
-speed up for core time.
+This is *great*!  We getting about a **2x** speed up by both wall time and core time.
 But something *very* strange happens when we run  *the same code* on a workstation:
 
 ```
@@ -337,16 +336,16 @@ Wall time: 5min 23s
 ```
 
 What the *what*?  Running on a different machine now makes our Polars-enhanced
-Python routine *more than twice as slow* and uses **8x** much core time.
+Python routine *more than twice as slow* and uses **8x** the core time.
 
 It turns out, it's not the version of Python or Polars installed, but
-rather the game of musical chairs that happens each time polars code gets
-run and the way in which our rank calculation is coded.
+rather the game of musical chairs that happens to the Python execution thread
+each time polars code gets run combined with the way our rank calculation is coded.
 
-Ahead of time, we calculate for each listing its per-aspect star
+Ahead of time we calculate for each listing its per-aspect star
 rating — one for `food`, one for `atmosphere` etc.  So for our 25,000
 listings and 5 aspects we have a table of 125,000 floats, which pandas
-(and for that matter polars) by default store as float64's, adding up
+(and for that matter polars) by default will store as float64's.  This adds up
 to about a megabyte of data.  We sort these lists and store them in
 sorted `np.array`s and then at run time scan these using `np.searchsorted`
 to find each listing's aspect rank in the sorted list.
@@ -355,11 +354,12 @@ On my workstation's 12 core
 [Xeon(R) W-2135 CPU @ 3.70GHz](https://ark.intel.com/content/www/us/en/ark/products/126709/intel-xeon-w-2135-processor-8-25m-cache-3-70-ghz.html)
 each time Python wakes up from a multi-core Polars frenzy, it lands somewhat
 arbitrarily on a different core (see the core jump counts above).
-Waking up on a new core, that 1 megabyte of  reference data?
+Waking up on a new core, that 1 megabyte of reference data?
 It's not in the L1 cache.  And since Skylake's L3 cache 
 access time is about [12x slower](https://www.anandtech.com/show/11544/intel-skylake-ep-vs-amd-epyc-7000-cpu-battle-of-the-decade/13)
 than its L1 access time, and since most of what this code is doing is scanning
-this megabyte of data, well, it's not hard to see how you could take 10x as long to run the same computation.
+this megabyte of data, well, it's not hard to see how you could take eight
+times as long to run the same computation.
 
 Code: [Google Colab notebook](reviews/Public_Google_Colab_Synthetic_Reviews_Dataframe_Benchmark.ipynb) [as Standalone Python](reviews/run_synthetic_benchmark.py)
 
@@ -371,12 +371,14 @@ coding you may end up throwing a spanner into the works of adjacent Python code.
 ## An alternative for the impatient: ❤️ Ray ❤️
 
 Both `jax` and `polars` provide libraries that can massively
-speed up numeric Python code.  However, both libraries require
-you to rewrite chunks of your code and only give you the big
-wins when you go all in.  At that point we're almost back
-to where we started: rewriting all of our code.  But at least
-we're still in an interactive  notebook environment!
-Is there a better way?
+speed up numeric Python code.  However, both libraries do
+require you to subtley rewrite your code, avoid certain
+easy pitfalls and then only give you the really big performance
+wins when you go all in.  At that point we're almost back to
+where we started, in needing to rewrite all of our code.  But at least
+we're still in an interactive notebook environment!
+
+Is there a better way to get faster results when doing data science?
 
 There is, and that way is [Ray](https://github.com/ray-project/ray).
 While Ray will not `jit` or `xla` your code into a massively more
@@ -422,6 +424,9 @@ you can *still* use Ray to orchestrate your computation.
 That's how [kingoflolz](https://github.com/kingoflolz) and
 [@theshawwn](https://twitter.com/theshawwn) of [Eleuther.AI](https://www.eleuther.ai/) 
 [train their GPT models on TPUs](https://twitter.com/theshawwn/status/1406171487988498433)
+
+Happy coding, y'all, and try not to get your heart broken out there by the siren songs
+of microbenchmarks.
 
 # Appendix
 
