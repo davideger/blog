@@ -128,7 +128,7 @@ you're on will greatly affect your results) evaluating these
 functions on 5000  inputs show the jax-ified `fn_jit` to
 be **20% faster** than the equivalent numpy `fn`, and if you use 
 `jax`'s handy vectorization `vmap`, evaluating the function 5000
-times is **60x as fast**!
+times is **20 times as fast**!
 
 ```py
 def reify(xs):
