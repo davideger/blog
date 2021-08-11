@@ -27,9 +27,10 @@ only to rewrite them on a completely separate stack has its disadvantages.
 ## Python Trends: becoming the fastest on the planet, at least for pure numerics
 
 To take advantage of the flexibility and interactivity of Python,
-developers have wired up C++ libraries like `numpy` to minimize the amount of
+developers have wired performant low-level C libraries like `numpy`
+to minimize the amount of
 computation your Python interpreter actually performs.  Python objects still
-orchestrate things, but they're lightweight handles to efficiently packed vectors
+orchestrates things, but they're lightweight handles to efficiently packed vectors
 of uniformly typed machine words.  The compute is offloaded to natively (compiled)
 routines.
 
@@ -37,8 +38,8 @@ Even more interesting, the folks in  Google's Brain and DeepMind teams have
 now connected the Python runtime directly to the [LLVM](https://llvm.org/) compiler
 and built it an optimizing linear algebra library ([XLA](https://www.tensorflow.org/xla/architecture))
 that produces *much faster code* than the naive C++ codes you might have written.
-Many [PhD](https://dspace.mit.edu/handle/1721.1/89996) [theses](https://www.aartbik.com/sparse.php)
-have been written on how to make matrix math go fast, and XLA means
+A [lot](https://arxiv.org/abs/2002.11054) of [research](https://dl.acm.org/doi/10.1145/1379022.1375595)
+has been done on making matrix math go fast, and using XLA means
 your matmuls get shoved through a [systolic array](https://www.youtube.com/watch?v=s6SXj3v-a38&t=5148s)
 if you've got one, multiply-and-adds get "fused" to take advantage of your hardware's native abilities,
 and your numerics get sliced into chunks sized just so to optimize the usage
@@ -179,7 +180,8 @@ def full_code(v):
 ```
 `10 loops, best of 5: 53 ms per loop`
 
-So if I just swap that call to `fn` to a call to `fn_jit`, the microbenchmark says I should get a nice speed up:
+So if I just swap that call to `fn` to a call to `fn_jit`, the microbenchmark says
+I should get a nice speed up:
 
 ```py
 def full_code_jit(v):
@@ -189,8 +191,8 @@ def full_code_jit(v):
 ```
 `1 loops, best of 5: 3.2 s per loop`
 
-But instead I get a **60x slow down**!  So what happened?
-Why do we land in this heartbreak of disappointment?
+But instead I get a **60x slow down** (at least in `jax` as of 0.2.18 / August 9, 2021)!
+So what happened?  Why did we land in this heartbreak of disappointment?
 
 While the `jit`'d version of our piecewise function *on its own* is faster, the type it
 returns is not a Python `float`, it's a
@@ -216,11 +218,19 @@ to "Python native" floats when we're coming out of jax land:
 def full_code_jit_cast(v):
   return my_exp(float(fn_jit(v[0])), v[1], v[2])
 
-%timeit _ = [full_code_jit_cast(rand_vecs[i]) for i in range(rand_vecs.shape[0])]
+%timeit _ = reify([full_code_jit_cast(rand_vecs[i]) for i in range(rand_vecs.shape[0])])
 ```
 `10 loops, best of 5: 50 ms per loop`
 
 A 5% speed up: not bad.
+
+Again, if this is our entire routine and we're willing to go all the way
+to `vmap` this routine, we could do *much better*:
+
+```py
+%timeit _ = reify(vmap(full_code_jit)(rand_vecs))
+```
+`100 loops, best of 5: 2.02 ms per loop`
 
 
 **Takeaway:** `jax` is best used when you're converting a *large numeric
@@ -431,14 +441,12 @@ of microbenchmarks.
 # Appendix
 
 ## But why didn't you just...?
-# `jax.jit()`
 
-**But why don't you just `jax.jit()` the whole routine?** 
+**But why don't you just `jax.vmap(jax.jit())` the whole routine?** 
 
-Yes, that *is* the right thing to do here (53ms => 48ms),
-and `vmap`ing the result does even better( => 3.7ms).
+Yes, that *is* the right thing to do for speed.
 But sometimes converting your whole program to jax isn't so easy.
-If you're still developing your new function and have
+If you're still developing a new function and have
 debug `print`s in your routine you cannot `jax.jit()` it.
 If you call other libraries (like `pandas`) which are not
 pure-numeric, you also can't just `jax.jit()` it.
@@ -500,3 +508,8 @@ When I ran it I saw:
 10 listings with > 1000 and <= 10000 reviews
 1 listings with > 10000 and <= 100000 reviews
 ```
+
+## Acknowledgements
+
+This post included invaluable feedback from Jake Vander Plass, Will Bradbury
+and Ritchie Vink.  Any remaining errors are entirely my own.
