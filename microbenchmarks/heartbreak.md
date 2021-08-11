@@ -1,13 +1,14 @@
 # Microbenchmarks are a 💔 Hotel
-## watch out, or that speedy library may just break your heart.
+## watch out, or that speedy library may just break your heart
+### ... and why every data scientist should check out ❤️ Ray
 
-*Draft as of August 10, 2021, for private review*
+David Eger  *Draft as of August 10, 2021, for private review*
 
 I do a good bit of data analysis in Jupyter notebooks with Pandas.
 
-Jupyter notebooks and Python's `pandas`, `numpy` and `sklearn` libraries are
-so good for exploring data that they're the de facto literate programming
-environment for the ML world in 2021, used by everyone from the ML training
+The plotting and easy data analysis enabled by Python's `pandas`, `numpy`,
+and `sklearn` libraries are so good that they've made Jupyter Notebooks the
+de facto environment for the ML world in 2021, used by everyone from the ML training
 grounds of [Kaggle](https://kaggle.com/) and [fast.ai](https://www.fast.ai/) to
 the cutting edge Research teams at [DeepMind](https://github.com/deepmind/dm-haiku/blob/main/examples/haiku_lstms.ipynb),
 [Facebook Research](https://colab.research.google.com/drive/16jcaJoc6bCFAQ96jDe2HwtXj7BMD_-m5).
@@ -29,12 +30,13 @@ To take advantage of the flexibility and interactivity of Python,
 developers have wired up C++ libraries like `numpy` to minimize the amount of
 computation your Python interpreter actually performs.  Python objects still
 orchestrate things, but they're lightweight handles to efficiently packed vectors
-of uniformly typed machine words.  The compute is offloaded to native routines.
+of uniformly typed machine words.  The compute is offloaded to natively (compiled)
+routines.
 
 Even more interesting, the folks in  Google's Brain and DeepMind teams have
 now connected the Python runtime directly to the [LLVM](https://llvm.org/) compiler
-and its linear algebra optimizer ([XLA](https://www.tensorflow.org/xla/architecture)),
-making it *much faster* than the naive C++ codes you might have written.
+and built it an optimizing linear algebra library ([XLA](https://www.tensorflow.org/xla/architecture))
+that produces *much faster code* than the naive C++ codes you might have written.
 Many [PhD](https://dspace.mit.edu/handle/1721.1/89996) [theses](https://www.aartbik.com/sparse.php)
 have been written on how to make matrix math go fast, and XLA means
 your matmuls get shoved through a [systolic array](https://www.youtube.com/watch?v=s6SXj3v-a38&t=5148s)
@@ -56,9 +58,9 @@ as you normally would in `numpy`, and when you need to take a derivative
 you just pass your code to `jax.grad()` and get the derivative "for free,"
 *even if your code has loops, branches, or calls to np.sin().*
 
-Added together, these improvements boosted Python -- poor, slow Python,
+Added together, these improvements boosted Python — poor, slow Python,
 the whipping boy that's [60,000 times slower](https://science.sciencemag.org/content/368/6495/eaam9744)
-than optimized C++ run on a CPU -- to set world records for the *fastest code on the planet*
+than optimized C++ run on a CPU — to set world records for the *fastest code on the planet*
 at the [2020 MLPerf](https://cloud.google.com/blog/products/ai-machine-learning/google-breaks-ai-performance-records-in-mlperf-with-worlds-fastest-training-supercomputer) 
 competition.
 
@@ -69,12 +71,17 @@ All of this sounds splendid!
 Native Python code is slow, but using specialized libraries make it even faster than C++.
 
 Hearing all of this made me wonderfully optimistic, especially after running a couple of
-microbenchmarks to verify that some of my inner loops were *2x-4x faster* using some of
+microbenchmarks to verify that some of my inner loops were *2x faster* using some of
 these new fancy fast libraries.  The 💔 part came when I tried to actually *convert my code*
 and got *2x slower results*.
 
+> **But why didn't you just...?**  If you think this to yourself below,
+> you're right. Gold star.  There *is* a better way to do all of the below.
+> The point of these examples is to show how easy it is to go off the rails
+> when swapping in usage of a fast new library.
 
-## Microbenchmark 💔 Hotel #1: `jax.jit`
+
+## Microbenchmark #1: `jax.jit` 💔 Hotel
 
 As in many applications, I often have some sort of piecewise function to evaluate
 in my innermost loop.  Here's a relatively simple one I might evaluate, mapping
@@ -115,36 +122,46 @@ def fn_jit(x):
   return lax.switch(index, pwj_fns, x)
 ```
 
-Evaluating these functions on 5000 inputs show the jax-ified `fn_jit`
-to be **2x** as fast as the equivalent numpy `fn`, and if you use `jax`'s
-handy vectorization `vmap`, evaluating the function 5000 times is **60x as fast**!
+On the Xeon(R) Platinum 8173M I hosted my notebook on (the CPU
+you're on will greatly affect your results) evaluating these
+functions on 5000  inputs show the jax-ified `fn_jit` to
+be **20% faster** than the equivalent numpy `fn`, and if you use 
+`jax`'s handy vectorization `vmap`, evaluating the function 5000
+times is **60x as fast**!
 
 ```py
+def reify(xs):
+  # Make sure that all of the values in the list xs have actually
+  # been computed down to float values.  Otherwise jax may have
+  # just "started" the computation asynchronously, haha!
+  #  https://jax.readthedocs.io/en/latest/faq.html#benchmarking-jax-code 
+  return [float(x) for x in xs]
+
 rand_vecs = np.random.rand(5000, 3) * 100.
 ```
 
 ```py
 %%timeit
-_ = [fn(s) for s in rand_vecs[:, 0]]
+_ = reify([fn(s) for s in rand_vecs[:, 0]])
 ```
-`10 loops, best of 5: 46.1 ms per loop`
+`10 loops, best of 5: 50 ms per loop`
 
 
 ```py
 %%timeit
-_ = [fn_jit(s) for s in rand_vecs[:, 0]]
+_ = reify([fn_jit(s) for s in rand_vecs[:, 0]])
 ```
-`10 loops, best of 5: 23.3 ms per loop`
+`10 loops, best of 5: 40 ms per loop`
 
 
 ```py
 %%timeit
-_ = jax.vmap(fn_jit)(rand_vecs[:, 0])
+_ = reify(jax.vmap(fn_jit)(rand_vecs[:, 0]))
 ```
-`1000 loops, best of 5: 745 µs per loop`
+`1000 loops, best of 5: 2.54 ms per loop`
 
 This looks great!  Now I'm not quite ready to rewrite my whole stack of code in pure
-jax -- I'm still exploring data with pandas you see -- but even that **2x** speed up
+jax — I'm still exploring data with pandas — but even that 20% speed up
 looks great,  so let's just start by swapping in `fn_jit` for `fn` down in the middle
 of my inner loop.
 
@@ -158,9 +175,9 @@ def my_exp(p, q, r):
 def full_code(v):
   return my_exp(fn(v[0]), v[1], v[2])
 
-%timeit _ = [full_code(rand_vecs[i]) for i in range(rand_vecs.shape[0])]
+%timeit _ = reify([full_code(rand_vecs[i]) for i in range(rand_vecs.shape[0])])
 ```
-`10 loops, best of 5: 54.7 ms per loop`
+`10 loops, best of 5: 53 ms per loop`
 
 So if I just swap that call to `fn` to a call to `fn_jit`, the microbenchmark says I should get a nice speed up:
 
@@ -168,9 +185,9 @@ So if I just swap that call to `fn` to a call to `fn_jit`, the microbenchmark sa
 def full_code_jit(v):
   return my_exp(fn_jit(v[0]), v[1], v[2])
 
-%timeit _ = [full_code_jit(rand_vecs[i]) for i in range(rand_vecs.shape[0])]
+%timeit _ = reify([full_code_jit(rand_vecs[i]) for i in range(rand_vecs.shape[0])])
 ```
-`1 loops, best of 5: 3.36 s per loop`
+`1 loops, best of 5: 3.2 s per loop`
 
 But instead I get a **60x slow down**!  So what happened?
 Why do we land in this heartbreak of disappointment?
@@ -181,16 +198,18 @@ returns is not a Python `float`, it's a
 
 This specialized type is optimized for being stored and computed on a device that does all the numeric
 computation (GPU, TPU, AVX registers) and usually is not manipulated by the Python interpreter at all.
-If you naively use this type in Python expressions, every time the Python executes an operation
-it has to think about how to unbox the value from this specialized `xla` container and find the right
-function to dispatch a multiply or add of this thing against a native float.
+If you naively use this type in Python expressions, every time Python executes an operation
+it has to think about how to unbox the value from this specialized `xla`
+container and find the right function to compute a multiply or add
+of this thing against a native float.
 Remember, native Python is slow.   So even though you can "just write numpy
-like you used to" and "get much faster results through the magic of jax and xla," you only get
-the full benefit of those lightning-fast speedups if your code is pure numeric and fully rewritten to jax so it
-can all run on your accelerator.
+like you used to" and "get much faster results through the magic of jax and xla,"
+you'll only get the full benefit of those lightning-fast speedups if your code
+is pure numeric and fully rewritten to jax so it can all run on your accelerator.
 
-That said, all is not necessarily lost.  Now that we know what's going on, we *can* get some
-of the speed up we saw in our microbenchmark, we just have to be very careful to coerce results from our `jit`'d function back
+That said, all is not necessarily lost.  Now that we know what's going on,
+we *can* get some of the speed up we saw in our microbenchmark, we just have
+to be very careful to coerce results from our `jit`'d function back
 to "Python native" floats when we're coming out of jax land:
 
 ```py
@@ -199,16 +218,18 @@ def full_code_jit_cast(v):
 
 %timeit _ = [full_code_jit_cast(rand_vecs[i]) for i in range(rand_vecs.shape[0])]
 ```
-`10 loops, best of 5: 45.2 ms per loop`
+`10 loops, best of 5: 50 ms per loop`
 
-So we do see a 20% speed up: not bad, after all.
+A 5% speed up: not bad.
 
-**Takeaway:** `jax` is best used when you're converting *most of your
-program into one giant numeric subroutine.*  It *can* be used piecemeal, but be
-careful to coerce your types to python native floats or numpy arrays when
-switching back to native Python land.
 
-## Microbenchmark 💔 Hotel #2: Polars dataframes
+**Takeaway:** `jax` is best used when you're converting a *large numeric
+computation, preferably most of your program, into a giant numeric subroutine.*
+It *can* be used piecemeal, but if you're doing so, be careful to coerce your 
+types to python native floats or numpy arrays when switching back to
+native Python land.
+
+## Microbenchmark #2: Polars dataframes 💔 Hotel
 
 In 2021 we've reached the End of Moore's law.  Our chips are not getting faster,
 branches are disastrous, and in typical code our cores spend most of their time
@@ -263,9 +284,9 @@ def pl_get_representative_reviews(df, depth=2):
 
 After that, we'll use identical code for calcluating each listing's aspect ranks; we'll
 go into that later.  Benchmarking these two routines against 25,000 dataframes
-which follow the sort of Zipfian review count distribution you might expect --
+which follow the sort of Zipfian review count distribution you might expect —
 a few popular restaurants with thousands of reviews, many restaurants with
-only one or two -- confirms that Polars is a real winner here,
+only one or two — confirms that Polars is a real winner here,
 at least running on a free 2-core Google colab instance:
 
 ```
@@ -320,7 +341,7 @@ rather the game of musical chairs that happens each time polars code gets
 run and the way in which our rank calculation is coded.
 
 Ahead of time, we calculate for each listing its per-aspect star
-rating -- one for `food`, one for `atmosphere` etc.  So for our 25,000
+rating — one for `food`, one for `atmosphere` etc.  So for our 25,000
 listings and 5 aspects we have a table of 125,000 floats, which pandas
 (and for that matter polars) by default store as float64's, adding up
 to about a megabyte of data.  We sort these lists and store them in
@@ -337,6 +358,119 @@ access time is about [12x slower](https://www.anandtech.com/show/11544/intel-sky
 than its L1 access time, and since most of what this code is doing is scanning
 this megabyte of data, well, it's not hard to see how you could take 10x as long to run the same computation.
 
+Code: [Google Colab notebook](reviews/Public_Google_Colab_Synthetic_Reviews_Dataframe_Benchmark.ipynb) [as Standalone Python](reviews/run_synthetic_benchmark.py)
+
 **Takeaway**: Be very careful mixing "native Python" code with Polars queries over small dataframes.
 Polars is amazingly performant for otherwise expensive queries over large dataframes, but without careful
 coding you may end up throwing a spanner into the works of adjacent Python code.
+
+
+## An alternative for the impatient: ❤️ Ray ❤️
+
+Both `jax` and `polars` provide libraries that can massively
+speed up numeric Python code.  However, both libraries require
+you to rewrite chunks of your code and only give you the big
+wins when you go all in.  At that point we're almost back
+to where we started: rewriting all of our code.  But at least
+we're still in an interactive  notebook environment!
+Is there a better way?
+
+There is, and that way is [Ray](https://github.com/ray-project/ray).
+While Ray will not `jit` or `xla` your code into a massively more
+performant version of itself, what it does is provide an exceptionally
+easy way to run the Python code you have today — however efficient
+or inefficient it is — in parallel, across all of the cores
+of your laptop or cpus in your datacenter.
+
+If you have a pure Python function `f(x)` all you have to do
+is wrap it with a `@ray.remote` annotation to prepare it to execute
+on a remote core or machine, and call `.get()` to fetch the computed
+value:
+
+```py
+def ray_pmap(f, xs):
+  """Equivalent to list(map(x, xs)) but done in parallel!"""
+  @ray.remote
+  def g(x):
+    return f(x)
+   return ray.get([g.remote(x) for x in xs])
+
+```
+
+Using `ray_pmap` with our original pandas code on our 12 core xeon
+means the expensive cost of loading that 1MB of reference data into
+each core's cache happens in parallel, approximately once
+for each core.  It's still expensive to do (as in our Polars version)
+and we'd still do well to make it more efficient, but we get a speed up
+greater than **2x** basically for free:
+
+```
+Pandas finding representative reviews for 25000 synthetic listings + rank finding
+CPU times: user 2min 24s, sys: 3.29 s, total: 2min 27s
+Wall time: 2min 27s
+
+Pandas (ray) finding representative reviews for 25000 synthetic listings + rank finding
+CPU times: user 1min 3s, sys: 8.09 s, total: 1min 11s
+Wall time: 1min 1s
+```
+
+And if you *do* have fancy Python codes that take advantage of `xla` and TPUs,
+you can *still* use Ray to orchestrate your computation.
+That's how [kingoflolz](https://github.com/kingoflolz) and
+[@theshawwn](https://twitter.com/theshawwn) of [Eleuther.AI](https://www.eleuther.ai/) 
+[train their GPT models on TPUs](https://twitter.com/theshawwn/status/1406171487988498433)
+
+# Appendix
+
+## But why didn't you just...?
+# `jax.jit()`
+
+**But why don't you just `jax.jit()` the whole routine?** 
+
+Yes, that *is* the right thing to do here (53ms => 48ms),
+and `vmap`ing the result does even better( => 3.7ms).
+But sometimes converting your whole program to jax isn't so easy.
+If you're still developing your new function and have
+debug `print`s in your routine you cannot `jax.jit()` it.
+If you call other libraries (like `pandas`) which are not
+pure-numeric, you also can't just `jax.jit()` it.
+
+
+**But why don't you write your routine to process batches instead of a single example?** 
+
+Writing your functions to work on batches of data *can* yield
+amazing speedups, and it's the core idea behind modern database
+engines like [CockroachDB](https://www.cockroachlabs.com/)
+and [Polars](https://github.com/pola-rs/polars) being vectorized.
+
+However, there's a reason why `jax` team developed `vmap`:
+writing code to process a single example instead of a batch
+often feels more natural.  You can test your routine on a single
+example easily, and it's not possible to  "accidentally" use all
+of the batch's data when you don't intend to.
+
+For restaurant listings, suppose `atmosphere` is a seasonal
+phenomenon for restaurants near parks and you want to
+highlight restaurants especially good to visit in April (when 
+their `atmosphere` rates 1.3x normal).
+If in coding a batched version of your function you "forget"
+to generate your yearly average *only for the
+restaurant in question*, you might instead end up simply
+highlighting all restaurants whose `atmosphere` generally
+rates well against the average restaurant rating all year long.
+
+
+**But why didn't you just make your aspect ranker more (memory) efficient?**
+
+In our example there end up not being that many values for aspect ratings,
+so instead of storing all of them, you can radix sort the rating values.
+This will drop memory requirements from ~1 Megabyte to about 12 Kilobytes, and hopping from
+core to core will be *much faster*.  But our point is a meta-point about
+how easily you can accidentally slow yourself down in our new multi-core world.
+On the single or dual core VM,  we never had to think about the cost
+of having 1MB of pre-computed reference data — using it was pretty fast.
+When we went multicore with Polars, our computation's memory intensive sections
+were a *heavy cost* every time we hopped to a new core.  Ray doesn't eliminate
+that cost entirely, but it sure softens the blow and lets us spend more time
+exploring our data, faster, and less time obsessing about how we might optimize
+our current algorithm, or accidentally get burned trying to do so!
