@@ -1,4 +1,4 @@
-# Microbenchmarks are a 💔 Hotel
+# Microbenchmarks are a Heartbreak Hotel 💔
 ## watch out, or that speedy library may just break your heart
 ### ... and why every data scientist should check out ❤️ Ray
 
@@ -16,8 +16,8 @@ the cutting edge Research teams at [DeepMind](https://github.com/deepmind/dm-hai
 That said, scaling up from exploratory data analysis to production
 deployment often involves *rewriting* chunks of code you built on
 `sklearn` or `pandas` with more efficient versions of the
-same, which people often do in C++.   The type flexibility that `pandas`
-provides in exploring your datasets and writing snippets of code comes at a cost:
+same, something software engineers often do in C++.   The type flexibility that Python
+and `pandas` provide in exploring your datasets and writing snippets of code comes at a cost:
 all values in Python are [boxed](http://jakevdp.github.io/blog/2014/05/09/why-python-is-slow/),
 so every expression you execute does type checking and pointer chasing under the hood.
 
@@ -27,14 +27,13 @@ only to rewrite them on a completely separate stack has its disadvantages.
 ## Python Trends: becoming the fastest on the planet, at least for pure numerics
 
 To take advantage of the flexibility and interactivity of Python,
-developers have wired performant low-level C libraries like `numpy`
-to minimize the amount of
-computation your Python interpreter actually performs.  Python objects still
-orchestrates things, but they're lightweight handles to efficiently packed vectors
-of uniformly typed machine words.  The compute is offloaded to natively (compiled)
-routines.
+developers have wired up performant low-level C libraries like `numpy`
+to minimize the amount of computation your Python interpreter actually performs.
+Python objects still orchestrates things, but they're lightweight handles to 
+efficiently packed vectors of uniformly typed machine words.  Much of the actual
+compute is offloaded to natively compiled routines.
 
-Even more interesting, the folks in  Google's Brain and DeepMind teams have
+Taking it another step, Google's Brain and DeepMind teams have
 now connected the Python runtime directly to the [LLVM](https://llvm.org/) compiler
 and built it an optimizing linear algebra library ([XLA](https://www.tensorflow.org/xla/architecture))
 that produces *much faster code* than the naive C++ codes you might have written.
@@ -45,7 +44,7 @@ if you've got one, multiply-and-adds get "fused" to take advantage of your hardw
 and your numerics get sliced into chunks sized just so to optimize the usage
 of your accelerator's cache hierarchy.
 
-Beyond these feats, Google's `JAX` team took Mike Innes's audacious 2017 challenge:
+Even more recently, Google's `JAX` team took Mike Innes's audacious 2017 challenge:
 
 > Can we build systems that treat numerics, derivatives and parallelism as first-class features, without sacrificing traditional programming ideas and wisdom?
 >  -[Mike Innes](https://mikeinnes.github.io/2017/12/06/ml-pl.html)
@@ -53,13 +52,13 @@ Beyond these feats, Google's `JAX` team took Mike Innes's audacious 2017 challen
 and answered it with an affirmative *for Python.*  With [JAX](https://github.com/google/jax)
 you now have [Automatic](https://marksaroufim.medium.com/automatic-differentiation-step-by-step-24240f97a6e6)
 [Differentiation](https://github.com/MikeInnes/diff-zoo), just like you do in
-tensorflow and your code can *look just like mathematics*.  You write your function
-as you normally would in `numpy`, and when you need to take a derivative
-(as you do in order to implement stochastic gradient descent)
-you just pass your code to `jax.grad()` and get the derivative "for free,"
+tensorflow and your code can *look just like mathematics*.  Jax's promise is:
+write your function as you normally would in `numpy`, and when you need to take
+a derivative (as you do when implementing gradient descent)
+just pass your code to `jax.grad()` and get the derivative "for free,"
 *even if your code has loops, branches, or calls to np.sin().*
 
-Added together, these improvements boosted Python — poor, slow Python,
+Added together, these improvements have boosted Python — poor, slow, Python,
 the whipping boy that's [60,000 times slower](https://science.sciencemag.org/content/368/6495/eaam9744)
 than optimized C++ run on a CPU — to set world records for the *fastest code on the planet*
 at the [2020 MLPerf](https://cloud.google.com/blog/products/ai-machine-learning/google-breaks-ai-performance-records-in-mlperf-with-worlds-fastest-training-supercomputer) 
@@ -72,8 +71,8 @@ All of this sounds splendid!
 Native Python code is slow, but using specialized libraries make it even faster than C++.
 
 Hearing all of this made me wonderfully optimistic, especially after running a couple of
-microbenchmarks to verify that some of my inner loops were *2x faster* using some of
-these new fancy fast libraries.  The 💔 part came when I tried to actually *convert my code*
+microbenchmarks to verify that some of my inner loops were *2x faster* using some
+fancy new libraries.  The 💔 part came when I tried to actually *convert my code*
 and got *2x slower results*.
 
 > **But why didn't you just...?**  If you think this to yourself below,
@@ -82,7 +81,9 @@ and got *2x slower results*.
 > when swapping in usage of a fast new library.
 
 
-## Microbenchmark #1: `jax.jit` 💔 Hotel
+## Microbenchmark #1: `jax.jit`
+
+![naive use of jit can break your heart chart](jit_danger.png)
 
 As in many applications, I often have some sort of piecewise function to evaluate
 in my innermost loop.  Here's a relatively simple one I might evaluate, mapping
@@ -128,7 +129,7 @@ you're on will greatly affect your results) evaluating these
 functions on 5000  inputs show the jax-ified `fn_jit` to
 be **20% faster** than the equivalent numpy `fn`, and if you use 
 `jax`'s handy vectorization `vmap`, evaluating the function 5000
-times is **20 times as fast**!
+times was **20 times as fast**!
 
 ```py
 def reify(xs):
@@ -161,13 +162,11 @@ _ = reify(jax.vmap(fn_jit)(rand_vecs[:, 0]))
 ```
 `1000 loops, best of 5: 2.54 ms per loop`
 
-This looks great!  Now I'm not quite ready to rewrite my whole stack of code in pure
-jax — I'm still exploring data with pandas — but even that 20% speed up
-looks great,  so let's just start by swapping in `fn_jit` for `fn` down in the middle
-of my inner loop.
-
-Now this piecewise function evaluation was not the whole of the code in my inner loop,
-just the hottest section, and was called from code like this:
+This looks great!  Now while I'm not ready to rewrite my whole stack of code in pure
+jax, even that 20% speed up could save me minutes on a long running routine, so how about
+starting by just swapping in `fn_jit` for `fn`?  The piecewise function evaluation was
+not the whole of the code in my inner loop,  just the hottest section, and was called
+from code like this:
 
 ```py
 def my_exp(p, q, r):
@@ -180,8 +179,7 @@ def full_code(v):
 ```
 `10 loops, best of 5: 53 ms per loop`
 
-So if I just swap that call to `fn` to a call to `fn_jit`, the microbenchmark says
-I should get a nice speed up:
+According to the microbenchmark, I should get a nice speed up...
 
 ```py
 def full_code_jit(v):
@@ -227,11 +225,7 @@ A 5% speed up: not bad.
 Again, if this is our entire routine and we're willing to go all the way
 to `vmap` this routine, we could do *much better*:
 
-```py
-%timeit _ = reify(vmap(full_code_jit)(rand_vecs))
-```
-`100 loops, best of 5: 2.02 ms per loop`
-
+![careful, complete conversion to jax for the win](jit_final.png)
 
 **Takeaway:** `jax` is best used when you're converting a *large numeric
 computation, preferably most of your program, into a giant numeric subroutine.*
@@ -239,7 +233,7 @@ It *can* be used piecemeal, but if you're doing so, be careful to coerce your
 types to python native floats or numpy arrays when switching back to
 native Python land.
 
-## Microbenchmark #2: Polars dataframes 💔 Hotel
+## Microbenchmark #2: Polars dataframes
 
 In 2021 we've reached the End of Moore's law.  Our chips are not getting faster,
 branches are disastrous, and in typical code our cores spend most of their time
@@ -285,9 +279,7 @@ def pd_get_representative_reviews(df, depth=2):
       by=['stars', 'review_age_weeks']).groupby('stars').head(depth)
 ```
 
-In polars, the equivalent code is thankfully very similar (though if
-you know the particular fields you need at the end, selecting them explicitly
-will make this code *even* faster):
+In polars, the equivalent code is similar:
 
 ```py
 def pl_get_representative_reviews(df, depth=2):
@@ -295,12 +287,11 @@ def pl_get_representative_reviews(df, depth=2):
       ['stars', 'review_age_weeks']).groupby('stars').head(depth).sort(['stars', 'review_age_weeks'])
 ```
 
-After that, we'll use identical code for calcluating each listing's aspect ranks; we'll
-go into that later.  Benchmarking these two routines against 25,000 dataframes
-following a Zipfian review count distribution you might expect —
-a few popular restaurants with thousands of reviews, most restaurants only having
-one or two reviews — confirms that Polars is a real winner here,
-at least running on a free 2-core Google colab instance:
+After that, we'll use identical code for calcluating each listing's aspect ranks (we'll
+go into that later).  We benchmark this code on 25,000 dataframes whose review counts
+follow a Zipfian distribution:  a few popular restaurants with thousands of reviews,
+most restaurants only have one or two reviews.  And we confirm that Polars is a real
+winner over Pandas, at least running on a free 2-core Google colab instance:
 
 ```
 Pandas finding representative reviews for 25000 synthetic listings + no post processing
@@ -371,22 +362,24 @@ than its L1 access time, and since most of what this code is doing is scanning
 this megabyte of data, well, it's not hard to see how you could take eight
 times as long to run the same computation.
 
-Code: [Google Colab notebook](reviews/Public_Google_Colab_Synthetic_Reviews_Dataframe_Benchmark.ipynb) [as Standalone Python](reviews/run_synthetic_benchmark.py)
+Code:
+  [Google Colab notebook](reviews/Public_Google_Colab_Synthetic_Reviews_Dataframe_Benchmark.ipynb) 
+  [as Standalone Python](reviews/run_synthetic_benchmark.py)
 
 **Takeaway**: Be very careful mixing "native Python" code with Polars queries over small dataframes.
 Polars is amazingly performant for otherwise expensive queries over large dataframes, but without careful
-coding you may end up throwing a spanner into the works of adjacent Python code.
+coding you may end up thrashing your cache hit rate for your Python Interpreter thread.
 
 
-## An alternative for the impatient: ❤️ Ray ❤️
+## An alternative for the impatient: Ray ❤
 
 Both `jax` and `polars` provide libraries that can massively
 speed up numeric Python code.  However, both libraries do
-require you to subtley rewrite your code, avoid certain
-easy pitfalls and then only give you the really big performance
+require you to subtley rewrite your code, avoid performance foot guns
+and then only give you the really big performance
 wins when you go all in.  At that point we're almost back to
 where we started, in needing to rewrite all of our code.  But at least
-we're still in an interactive notebook environment!
+we're still in an interactive notebook environment?
 
 Is there a better way to get faster results when doing data science?
 
