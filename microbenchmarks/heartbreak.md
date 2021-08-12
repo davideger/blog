@@ -235,6 +235,8 @@ native Python land.
 
 ## Microbenchmark #2: Polars dataframes
 
+![microbenchmark and benchmark polars usage looks great... until you go multi-core](polars_chart.png)
+
 In 2021 we've reached the End of Moore's law.  Our chips are not getting faster,
 branches are disastrous, and in typical code our cores spend most of their time
 idle waiting on memory.
@@ -244,13 +246,12 @@ this new world by *vectorizing their execution*.  This both minimizes branches
 and effectively utilizes processor caches and execution units by operating column-wise
 over your data.  Ritchie Vink ran with [this idea](https://www.ritchievink.com/blog/2021/02/28/i-wrote-one-of-the-fastest-dataframe-libraries/)
 and in 2020 implemented a Pandas replacement called [Polars](https://github.com/pola-rs/polars) which benchmarks
-[5-10x faster than pandas](https://h2oai.github.io/db-benchmark/) at least for large dataframes.
+[5-10x faster than pandas](https://h2oai.github.io/db-benchmark/) for large dataframes.
 
 Since much of my development is in Pandas, getting a *5-10x* speed up sounds great!
 
-So let's take an application: summarizing reviews for restaurant listings.  Input data
-would be a table of review data something like this (we omit a few columns here, for
-example the actual review text):
+So let's take an application: summarizing reviews for restaurant listings.
+The input data for each listing is a table of review data like the following:
 
 
 | stars   | reviewer_id |	review_age_weeks | primary_topic |	for_business | text_length | text_quality |	language |
@@ -264,14 +265,15 @@ example the actual review text):
 
 We'll have two goals for our summarization benchmark:
 
-a. Select a few diverse reviews to show on the first page.
+a. Select a few diverse reviews to show on the first page (which will be the
+   basis of our "microbenchmark" comparing pandas to polars)
 
 b. Calculate this restaurant's rank vs all other restaurants for
    each rating aspect: "atmosphere", "food", "speed", "location", and "friendliness."
 
-Since we want to show what's both good and bad about the restaurant, we'll choose a few
-reviews from each star rating bucket to show.  In pandas, we use the following code to
-choose which reviews to show:
+Since we want to show what's both good and bad about the restaurant,
+we choose a few reviews from each star rating bucket to show.  In pandas,
+we use the following code to choose which reviews to show:
 
 ```py
 def pd_get_representative_reviews(df, depth=2):
@@ -287,11 +289,11 @@ def pl_get_representative_reviews(df, depth=2):
       ['stars', 'review_age_weeks']).groupby('stars').head(depth).sort(['stars', 'review_age_weeks'])
 ```
 
-After that, we'll use identical code for calcluating each listing's aspect ranks (we'll
+After that, we use identical code for calculating each listing's aspect ranks (we'll
 go into that later).  We benchmark this code on 25,000 dataframes whose review counts
-follow a Zipfian distribution:  a few popular restaurants with thousands of reviews,
-most restaurants only have one or two reviews.  And we confirm that Polars is a real
-winner over Pandas, at least running on a free 2-core Google colab instance:
+follow a Zipfian distribution: a few popular restaurants have thousands of reviews,
+most listings only have one or two.  And we confirm that Polars is a real
+winner over Pandas running on a free 2-core [Google colab](https://colab.research.google.com/) instance:
 
 ```
 Pandas finding representative reviews for 25000 synthetic listings + no post processing
@@ -339,17 +341,18 @@ Wall time: 5min 23s
 What the *what*?  Running on a different machine now makes our Polars-enhanced
 Python routine *more than twice as slow* and uses **8x** the core time.
 
-It turns out, it's not the version of Python or Polars installed, but
-rather the game of musical chairs that happens to the Python execution thread
-each time polars code gets run combined with the way our rank calculation is coded.
+It's not the version of Python or Polars we have installed on the workstation,
+but rather the game of musical chairs that happens to the Python execution thread
+each time polars code gets run, combined with the fact that our rank calculation
+code uses a chunk of memory.
 
-Ahead of time we calculate for each listing its per-aspect star
+Before the benchmark runs, we calculate for each listing its per-aspect star
 rating — one for `food`, one for `atmosphere` etc.  So for our 25,000
 listings and 5 aspects we have a table of 125,000 floats, which pandas
-(and for that matter polars) by default will store as float64's.  This adds up
+will by default store as float64's.  So these aspect ratings add up
 to about a megabyte of data.  We sort these lists and store them in
-sorted `np.array`s and then at run time scan these using `np.searchsorted`
-to find each listing's aspect rank in the sorted list.
+`np.array`s which we scan during the benchmark using `np.searchsorted`
+to find each listing's aspect rank in the appropriate sorted list.
 
 On my workstation's 12 core
 [Xeon(R) W-2135 CPU @ 3.70GHz](https://ark.intel.com/content/www/us/en/ark/products/126709/intel-xeon-w-2135-processor-8-25m-cache-3-70-ghz.html)
@@ -358,7 +361,7 @@ arbitrarily on a different core (see the core jump counts above).
 Waking up on a new core, that 1 megabyte of reference data?
 It's not in the L1 cache.  And since Skylake's L3 cache 
 access time is about [12x slower](https://www.anandtech.com/show/11544/intel-skylake-ep-vs-amd-epyc-7000-cpu-battle-of-the-decade/13)
-than its L1 access time, and since most of what this code is doing is scanning
+than its L1 access time.  Since most of what this code is doing is scanning
 this megabyte of data, well, it's not hard to see how you could take eight
 times as long to run the same computation.
 
@@ -366,33 +369,33 @@ Code:
   [Google Colab notebook](reviews/Public_Google_Colab_Synthetic_Reviews_Dataframe_Benchmark.ipynb) 
   [as Standalone Python](reviews/run_synthetic_benchmark.py)
 
-**Takeaway**: Be very careful mixing "native Python" code with Polars queries over small dataframes.
-Polars is amazingly performant for otherwise expensive queries over large dataframes, but without careful
+**Takeaway**: Be very careful mixing "native Python" code with multithreaded libraries like
+Polars, *especially* if the library call isn't running long enough to take much advantage of being on multiple cores.
+Polars is amazingly performant for expensive queries over large dataframes, but without careful
 coding you may end up thrashing your cache hit rate for your Python Interpreter thread.
 
 
 ## An alternative for the impatient: Ray ❤
 
 Both `jax` and `polars` provide libraries that can massively
-speed up numeric Python code.  However, both libraries do
-require you to subtley rewrite your code, avoid performance foot guns
-and then only give you the really big performance
-wins when you go all in.  At that point we're almost back to
-where we started, in needing to rewrite all of our code.  But at least
-we're still in an interactive notebook environment?
+speed up numeric Python code when you're working on really
+big data and you go all in with them.  However, both libraries
+require some code rewrite and have some surprising foot-guns
+especially for data sets that aren't huge.
 
-Is there a better way to get faster results when doing data science?
+
+Is there a better way to get speed up your data science?
 
 There is, and that way is [Ray](https://github.com/ray-project/ray).
 While Ray will not `jit` or `xla` your code into a massively more
-performant version of itself, what it does is provide an exceptionally
+performant version, what it does is provide an exceptionally
 easy way to run the Python code you have today — however efficient
-or inefficient it is — in parallel, across all of the cores
+or inefficient it is — in parallel: across all of the cores
 of your laptop or cpus in your datacenter.
 
 If you have a pure Python function `f(x)` all you have to do
 is wrap it with a `@ray.remote` annotation to prepare it to execute
-on a remote core or machine, and call `.get()` to fetch the computed
+on a remote core or machine and call `.get()` to fetch the computed
 value:
 
 ```py
@@ -409,8 +412,9 @@ Using `ray_pmap` with our original pandas code on our 12 core xeon
 means the expensive cost of loading that 1MB of reference data into
 each core's cache happens in parallel, approximately once
 for each core.  It's still expensive to do (as in our Polars version)
-and we'd still do well to make it more efficient, but we get a speed up
-greater than **2x** basically for free:
+and we'd still do well to make that code more efficient, but with
+relatively little change, we get more than **2x** speed up, basically
+for free:
 
 ```
 Pandas finding representative reviews for 25000 synthetic listings + rank finding
@@ -422,6 +426,11 @@ CPU times: user 1min 3s, sys: 8.09 s, total: 1min 11s
 Wall time: 1min 1s
 ```
 
+> The reason our speedup is not *greater* than ~2x is due to our Zipf ditribution;
+> there's one *extremely* large listing with over 100,000 reviews that takes as much
+> time as most of the other listings combined.  Otherwise, our speedup would scale
+> more linearly with our core count.
+
 And if you *do* have fancy Python codes that take advantage of `xla` and TPUs,
 you can *still* use Ray to orchestrate your computation.
 That's how [kingoflolz](https://github.com/kingoflolz) and
@@ -431,7 +440,7 @@ That's how [kingoflolz](https://github.com/kingoflolz) and
 Happy coding, y'all, and try not to get your heart broken out there by the siren songs
 of microbenchmarks.
 
-# Appendix
+# Notes
 
 ## But why didn't you just...?
 
@@ -504,5 +513,9 @@ When I ran it I saw:
 
 ## Acknowledgements
 
-This post included invaluable feedback from Jake Vander Plass, Will Bradbury
+This post included valuable feedback from Jake Vander Plass, Will Bradbury
 and Ritchie Vink.  Any remaining errors are entirely my own.
+
+Like data science?
+
+Consider a career at [Google](https://careers.google.com/), we're always looking for good talent.
