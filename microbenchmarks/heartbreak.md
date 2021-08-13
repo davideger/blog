@@ -2,15 +2,16 @@
 ## watch out, or that speedy library may just break your heart
 ### ... and why every data scientist should check out ❤️ Ray
 
-David Eger  *Draft as of August 10, 2021, for private review*
+David Eger, August 13, 2021
 
 I do a good bit of data analysis in Jupyter notebooks with Pandas.
 
-The plotting and easy data analysis enabled by Python's `pandas`, `numpy`,
-and `sklearn` libraries are so good that they've made Jupyter Notebooks the
-de facto environment for the ML world in 2021, used by everyone from the ML training
-grounds of [Kaggle](https://kaggle.com/) and [fast.ai](https://www.fast.ai/) to
-the cutting edge Research teams at [DeepMind](https://github.com/deepmind/dm-haiku/blob/main/examples/haiku_lstms.ipynb),
+The plotting and easy data analysis enabled by IPython and its extensive set
+of libraries (`pandas`, `numpy`, `sklearn`, `pytorch`, `keras`, `tensorflow`...)
+have made Jupyter Notebooks the de facto environment for the ML world in 2021,
+used by everyone from the ML training grounds of [Kaggle](https://kaggle.com/)
+and [fast.ai](https://www.fast.ai/) to the cutting edge Research teams at
+[DeepMind](https://github.com/deepmind/dm-haiku/blob/main/examples/haiku_lstms.ipynb),
 [Facebook Research](https://colab.research.google.com/drive/16jcaJoc6bCFAQ96jDe2HwtXj7BMD_-m5).
 
 That said, scaling up from exploratory data analysis to production
@@ -383,7 +384,6 @@ big data and you go all in with them.  However, both libraries
 require some code rewrite and have some surprising foot-guns
 especially for data sets that aren't huge.
 
-
 Is there a better way to get speed up your data science?
 
 There is, and that way is [Ray](https://github.com/ray-project/ray).
@@ -429,7 +429,7 @@ Wall time: 1min 1s
 > The reason our speedup is not *greater* than ~2x is due to our Zipf ditribution;
 > there's one *extremely* large listing with over 100,000 reviews that takes as much
 > time as most of the other listings combined.  Otherwise, our speedup would scale
-> more linearly with our core count.
+> almost *linearly* with core count (up to the limit of Amdahl's law ).
 
 And if you *do* have fancy Python codes that take advantage of `xla` and TPUs,
 you can *still* use Ray to orchestrate your computation.
