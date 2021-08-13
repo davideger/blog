@@ -518,4 +518,6 @@ and Ritchie Vink.  Any remaining errors are entirely my own.
 
 Like data science?
 
-Consider a career at [Google](https://careers.google.com/), we're always looking for good talent.
+Consider a career at [Google](https://careers.google.com/) (my employer) or
+[Anyscale](https://jobs.lever.co/anyscale) (makers of Ray), two companies that
+love top notch engineers and data scientists and are always looking for good talent.
