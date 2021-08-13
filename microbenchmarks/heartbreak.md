@@ -1,5 +1,4 @@
-# Microbenchmarks are a Heartbreak Hotel 💔
-## watch out, or that speedy library may just break your heart
+# Microbenchmarks: how that speedy library may just break your heart
 ### ... and why every data scientist should check out ❤️ Ray
 
 David Eger, August 13, 2021
