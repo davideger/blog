@@ -75,6 +75,8 @@ def fast_rank_description_maker(listing_id):
 
 def cpu_history(processed_listings):
   # a is an array of cpu ids in (presumably) program order.
+  if not processed_listings:
+      return "(no history - did you not run any code?)"
   a = [r['cpu_id'] for r in processed_listings]
   num_core_changes = ((a - np.roll(a, 1)) != 0.).astype(int).sum()
   return f'Over {len(a)} records, computation jumped core at least {num_core_changes} times.'
@@ -99,11 +101,10 @@ def pxmap(f, xs, mp_style):
     return ray.get([g.remote(x) for x in xs])
   return [f(x) for x in xs]
 
-
+pandas_results = None
 for (label, postprocessing) in [
     ('no post processing', 'noop_description_maker'),
     ('rank finding', 'fast_rank_description_maker'),
-    #('rank finding', 'slow_rank_description_maker')
 ]:
   print(
       f'Pandas finding representative reviews for {bmsize} synthetic listings + {label}'
@@ -115,10 +116,10 @@ for (label, postprocessing) in [
 
 print(f'CPU History: {cpu_history(pandas_results)}')
 
+polars_results = None
 for (label, postprocessing) in [
     ('no post processing', 'noop_description_maker'),
     ('rank finding', 'fast_rank_description_maker'),
-    #('slow rank finding', 'slow_rank_description_maker')
 ]:
   print(
       f'Polars finding representative reviews for {bmsize} synthetic listings + {label}'
@@ -130,13 +131,14 @@ for (label, postprocessing) in [
 
 print(f'CPU History: {cpu_history(polars_results)}')
 
-ray.init()
 
+pandas_ray_results = None
 for (label, postprocessing) in [
     ('no post processing', noop_description_maker),
     ('rank finding', fast_rank_description_maker),
-    #('slow rank finding', slow_rank_description_maker)
 ]:
+  if not ray.is_initialized():
+      ray.init()
   print(
       f'Pandas (ray) finding representative reviews for {bmsize} synthetic listings + {label}'
   )
@@ -153,3 +155,5 @@ for (label, postprocessing) in [
                                         locals())
 
 print(f'CPU History: {cpu_history(pandas_ray_results)}')
+
+
