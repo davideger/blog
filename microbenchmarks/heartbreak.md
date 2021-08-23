@@ -359,11 +359,36 @@ On my workstation's 12 core
 each time Python wakes up from a multi-core Polars frenzy, it lands somewhat
 arbitrarily on a different core (see the core jump counts above).
 Waking up on a new core, that 1 megabyte of reference data?
-It's not in the L1 cache.  And since Skylake's L3 cache 
-access time is about [12x slower](https://www.anandtech.com/show/11544/intel-skylake-ep-vs-amd-epyc-7000-cpu-battle-of-the-decade/13)
-than its L1 access time.  Since most of what this code is doing is scanning
+It's not in the L1 cache.  Heck it's not even in the TLB!
+Since most of what this code is doing is scanning
 this megabyte of data, well, it's not hard to see how you could take eight
-times as long to run the same computation.
+times as long to run the same computation.  If you fire up the [perf](https://perf.wiki.kernel.org/index.php/Main_Page)
+tool you'll see that the "+rank finding" benchmark has a dTLB hit rate of about 94.5%
+in the pandas version but only about 60% in the polars version.
+
+
+```
+$ metrics="cycles,cpu-migrations,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses"
+$ perf stat -e ${metrics} -I 10000 -B python3 run_synthetic_benchmark.py
+...
+#           time             counts unit events
+   # typical pandas (+reviews) 10 second sample
+   140.123674435     46,184,415,159      cycles                                                      
+   140.123674435                  2      cpu-migrations                                              
+   140.123674435        699,766,397      dTLB-loads                                                  
+   140.123674435         39,190,216      dTLB-load-misses          #    5.60% of all dTLB cache accesses
+   140.123674435        238,181,099      iTLB-loads                                                  
+   140.123674435         11,387,722      iTLB-load-misses          #    4.78% of all iTLB cache accesses
+...
+   # typical polars (+reviews) 10 second sample
+   190.160462649    171,927,950,381      cycles                                                      
+   190.160462649             11,547      cpu-migrations                                              
+   190.160462649      1,022,200,896      dTLB-loads                                                  
+   190.160462649        408,419,133      dTLB-load-misses          #   39.95% of all dTLB cache accesses
+   190.160462649         97,819,619      iTLB-loads                                                  
+   190.160462649         39,125,067      iTLB-load-misses          #   40.00% of all iTLB cache accesses
+```
+
 
 Code:
   [Google Colab notebook](reviews/Public_Google_Colab_Synthetic_Reviews_Dataframe_Benchmark.ipynb) 
