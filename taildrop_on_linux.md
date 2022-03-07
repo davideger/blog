@@ -75,11 +75,14 @@ However, this is problematic for a few reasons:
 
    Imagine someone figures out how to run a small script as you that
    symlinks `/home/$USER/Downloads/essay.pdf` to `/etc/passwd` and later
-   you taildrop `essay.pdf` to your linux box.  If you were to run the above
-   command, would you be accidentally overwriting `/etc/passwd`?
+   you taildrop `essay.pdf` to your linux box.  If you were to run the
+   above command, would you be accidentally overwriting `/etc/passwd`?
    Answer: No, but this is the sort of attack that should make you think
-   twice about running things as root willy nilly.
-   
+   twice about running things as root willy nilly.  If the attacker
+   was able to replace your `Downloads` file with a symlink to `/etc`
+   however, and you ran `sudo tailscale file get ${HOME}/Downloads/`
+   you *would* be liable to overwrite files in `/etc`!
+
 
 2. **No automatic downloads** [#2312](https://github.com/tailscale/tailscale/issues/2312)
 
