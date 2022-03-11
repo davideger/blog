@@ -34,7 +34,7 @@ Description=File Receiver Service for Taildrop
 
 [Service]
 UMask=0077
-ExecStart=${HOME}/bin/tailreceive.sh --verbose --conflict=rename "${TAILDROPDIR}"
+ExecStart=${HOME}/bin/tailreceive.sh --verbose "${TAILDROPDIR}"
 
 [Install]
 WantedBy=default.target

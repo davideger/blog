@@ -7,9 +7,16 @@ curl -fsSL https://raw.githubusercontent.com/davideger/blog/main/setup_taildrop.
 ```
 
 Tailscale will then automatically deposit received files into your
-`Downloads` directory.  In case you have a file there already named
-`image.jpg` and you taildrop another file named `image.jpg` it will
-be written as `image (1).jpg` or something similar.
+`Downloads` directory.  If your taildrops aren't arriving, you can
+check on things at any time by running:
+
+```sh
+systemctl --user status tailreceive
+```
+
+Once PR [#3967](https://github.com/tailscale/tailscale/pull/3967) lands,
+you'll have options to deal with conflicts -- when an existing file of the
+same name already exists in your ~/Downloads directory.
 
 ## Background and explanation
 
@@ -68,8 +75,9 @@ If you'd like to change the directory for Taildrop downloads, or what
 happens in case Tailscale receives a file that is named the same as
 a file already in your Taildrop directory, change the `ExecStart` line
 in `~/.config/systemd/user/tailreceive.service`.
-For example, to drop files into `/home/jenny/taildrops` and overwrite
-existing file, change that line to:
+After PR [#3967](https://github.com/tailscale/tailscale/pull/3967) lands
+you can for example drop files into `/home/jenny/taildrops` and overwrite
+any existing same named file by changing that line to:
 
 ```
 ExecStart=/home/jenny/bin/tailreceive.sh --verbose --conflict=overwrite /home/jenny/taildrops
