@@ -14,10 +14,6 @@ check on things at any time by running:
 systemctl --user status tailreceive
 ```
 
-Once PR [#3967](https://github.com/tailscale/tailscale/pull/3967) lands,
-you'll have options to deal with conflicts -- when an existing file of the
-same name already exists in your ~/Downloads directory.
-
 ## Background and explanation
 
 By default, Tailscale on Linux runs as `root` and receives any taildrop
@@ -65,9 +61,9 @@ However, this is problematic for a few reasons:
 
 To overcome these problems, first we inform `tailscaled` which
 user should have unfettered access to tailscale and taildrops on this
-machine.  Then we set up a script to sit in a loop and receive files
-to a target directory as they arrive.  Congratulations, you have now
-automated Taildrop receipt on your Linux box.
+machine.  Then we tell systemd it should run tailscale file get in
+loop mode to receive files to a target directory as they arrive.
+Congratulations, you have now automated Taildrop receipt on your Linux box.
 
 ## Customization
 
@@ -75,12 +71,12 @@ If you'd like to change the directory for Taildrop downloads, or what
 happens in case Tailscale receives a file that is named the same as
 a file already in your Taildrop directory, change the `ExecStart` line
 in `~/.config/systemd/user/tailreceive.service`.
-After PR [#3967](https://github.com/tailscale/tailscale/pull/3967) lands
-you can for example drop files into `/home/jenny/taildrops` and overwrite
+
+You can for example drop files into `/home/jenny/taildrops` and overwrite
 any existing same named file by changing that line to:
 
 ```
-ExecStart=/home/jenny/bin/tailreceive.sh --verbose --conflict=overwrite /home/jenny/taildrops
+ExecStart=tailscale file get --daemon --verbose --conflict=overwrite /home/jenny/taildrops
 ```
 
 For full information on available options, run `tailscale file get -h`
