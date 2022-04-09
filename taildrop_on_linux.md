@@ -76,7 +76,7 @@ You can for example drop files into `/home/jenny/taildrops` and overwrite
 any existing same named file by changing that line to:
 
 ```
-ExecStart=tailscale file get --daemon --verbose --conflict=overwrite /home/jenny/taildrops
+ExecStart=tailscale file get --loop --verbose --conflict=overwrite /home/jenny/taildrops
 ```
 
 For full information on available options, run `tailscale file get -h`
