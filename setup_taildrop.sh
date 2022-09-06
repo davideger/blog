@@ -13,7 +13,7 @@ Description=File Receiver Service for Taildrop
 
 [Service]
 UMask=0077
-ExecStart=tailscale --verbose --loop "${TAILDROPDIR}"
+ExecStart=tailscale file get --verbose --loop "${TAILDROPDIR}"
 
 [Install]
 WantedBy=default.target
