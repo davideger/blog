@@ -14,6 +14,8 @@ check on things at any time by running:
 systemctl --user status tailreceive
 ```
 
+You'll also have to turn on the `Send Files` feature in your [tailscale features admin page](https://login.tailscale.com/admin/settings/features) if it isn't already enabled.
+
 ## Background and explanation
 
 By default, Tailscale on Linux runs as `root` and receives any taildrop
