@@ -11,18 +11,22 @@ Though I'm a programmer, I have studiously avoided learning Javascript and CSS.
 And until a few weeks ago, I'd largely ignored the GPT ChatBots: When I first tried them, they hallucinated badly and led me astray when I asked them how to use various programming libraries.  But [Simon Willison](http://simonwillison.net/) and others have been using them to get things done with surprising ease.  So two weeks ago, I asked Google's Gemini 1.5 the following:
 
 ```
-I have an HTML table, and for each row I have a pair of numbers [low, high] in the first column.  I would like to make this first column more visual by rendering the interval as a rectangle aligned along the x axis within each cell, so that you can quickly see how the intervals in each row relate to each other.  Could you show an example HTML table that renders this way?
+I have an HTML table, and for each row I have a pair of numbers [low, high]
+in the first column.  I would like to make this first column more visual
+by rendering the interval as a rectangle aligned along the x axis within
+each cell, so that you can quickly see how the intervals in each row
+relate to each other.  Could you show an example HTML table that renders this way?
 ```
 
-And I was shocked at just how good the answer was.  It taught me about explicitly attaching [data fields](https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes) to tags (woah, when did that happen?), and gave me idiomatic CSS and javascript to accomplish what I wanted.  Copy, paste, ask one follow up and I was done.  What would have been hours for me turned into a couple of minutes.
+I was shocked at just how good the answer was.  Gemini taught me about explicitly attaching [data fields](https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes) to HTML tags (woah, when did that happen?), and gave me idiomatic CSS and javascript to accomplish what I wanted.  Copy, paste, ask one follow up and I was done.  What would have been hours for me turned into a couple of minutes.
 
-# Llama 3, almost as good as GPT-4 / Gemini Pro
+# [Llama 3](https://llama.meta.com/llama3/): an excellent, free AI you can run at home
 
-April 2024 saw a flurry of AI model announcements: [Reka Core](https://www.reka.ai/news/reka-core-our-frontier-class-multimodal-language-model), Microsoft's [Phi 3](https://export.arxiv.org/abs/2404.14219), Cohere's [Command R+](https://cohere.com/blog/command-r-plus-microsoft-azure).  But standing out was Meta's release of its open  [Llama 3](https://llama.meta.com/llama3/), a model scoring 1213 in the [LMSYS Chatbot Arena Leaderboard](https://chat.lmsys.org/?leaderboard), less than 50 elo points away from the best AI models Gemini 1.5 and GPT-4:
+April 2024 saw a flurry of AI model announcements: [Reka Core](https://www.reka.ai/news/reka-core-our-frontier-class-multimodal-language-model), Microsoft's [Phi 3](https://export.arxiv.org/abs/2404.14219), Cohere's [Command R+](https://cohere.com/blog/command-r-plus-microsoft-azure).  But standing out was Meta's release of its open  [Llama 3](https://llama.meta.com/llama3/), a model scoring 1213 in the [LMSYS Chatbot Arena Leaderboard](https://chat.lmsys.org/?leaderboard), less than 50 [elo points](https://en.wikipedia.org/wiki/Elo_rating_system) away from the best AI models Gemini 1.5 and GPT-4:
 
 ![Screenshot of lmsys leaderboard 24 April 2024](lmsys_arena_leaderboard_24_april_2024.png)
 
-Llama 3 has a couple of shortcomings: It is text only ([Gemini 1.5](https://ai.google.dev/gemini-api/docs/models/gemini) can process text, images, and video), and  has a relatively modest context window of 8k tokens.  Vanilla transformer inference cost grows as the square of the context, though advances such as [Ring Attention are making those costs linear](https://learnandburn.ai/p/how-to-build-a-10m-token-context).
+Llama 3 has shortcomings: It is text only (whereas [Gemini 1.5](https://ai.google.dev/gemini-api/docs/models/gemini) can process text, images, and video), and  has a relatively modest context window of 8k tokens.  The latest AIs now use [Ring Attention to make very large contexts possible](https://learnandburn.ai/p/how-to-build-a-10m-token-context).
 
 But for short conversations, the release of Llama 3 means: *you can now run a cutting-edge AI at home*!
 
@@ -33,9 +37,9 @@ Many sites now let you chat with AI Chatbots for free (often smaller versions of
 ## Open chatbot playgrounds
 
 + [LMSYS leaderboard](https://chat.lmsys.org/?leaderboard): try models blind and vote for the best AI.
-+ [Groq](https://groq.com/) blazing fast inference for public models (LLama 70B, Gemma, Mixtral) from an [AI hardware startup](https://www.youtube.com/watch?v=Z0jqIk7MUfE)
++ [Groq](https://groq.com/) provides blazing fast inference for public models (LLama 70B, Gemma, Mixtral) from an [AI hardware startup](https://www.youtube.com/watch?v=Z0jqIk7MUfE)
 + [HuggingChat](https://huggingface.co/chat/models/microsoft/Phi-3-mini-4k-instruct) offers access to 8 Open LLMs.
-+ [Vercel.ai](https://sdk.vercel.ai/) Another LLM comparison site
++ [Vercel.ai](https://sdk.vercel.ai/) is another free LLM comparison site
 
 ## Proprietary Chat Bots:
 
@@ -44,7 +48,7 @@ The very best chat bots are *quite* large.  Google hasn't reported just how big 
 
 + [GPT-4 Turbo](https://chat.openai.com/) (OpenAI). 128k token context window. Multimodal
 + [Claude](https://claude.ai/chat) (Anthropic) and [Anthropic Workbench](https://console.anthropic.com/workbench)
-+ [Gemini 1.5 Pro](https://gemini.google.com/) (Google).  128k token context window.  Multimodal [report](https://storage.googleapis.com/deepmind-media/gemini/gemini_v1_5_report.pdf)
++ [Gemini 1.5 Pro](https://gemini.google.com/) (Google).  128k token context window.  Multimodal
 + [Coral or Command R+](https://coral.cohere.com/) (Cohere)
 + [Reka AI](https://chat.reka.ai/)
 + [Perplexity](https://perplexity.ai/)
@@ -52,7 +56,7 @@ The very best chat bots are *quite* large.  Google hasn't reported just how big 
 
 # Running Llama 3 at home
 
-Really really, you can run a cutting edge chatbot at home.  Here are three easy options for running a Large Language Model [locally](https://www.reddit.com/r/LocalLLaMA/) on your own hardware:
+Here are three easy options for running a Large Language Model [locally](https://www.reddit.com/r/LocalLLaMA/) on your own hardware:
 
 + [llamafile](https://github.com/Mozilla-Ocho/llamafile)  
 llamafile is a format of LLM executable you can download, for example [Meta-Llama-3-70B-Instruct-llamafile](https://huggingface.co/jartine/Meta-Llama-3-70B-Instruct-llamafile).  
@@ -80,25 +84,25 @@ This engine and its sister [whisper.cpp](https://github.com/ggerganov/whisper.cp
     # Download a Model
     wget -O Phi-3-mini-4k-instruct-q4.gguf  https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf?download=true
     # Run the chat.
-    make -j 20 && ./main -m ./Phi-3-mini-4k-instruct-q4.gguf -p "Building a website can be done in 10 simple steps:\nStep 1:" -n 400 -e
+    make -j 20 && ./main -m ./Phi-3-mini-4k-instruct-q4.gguf -p "Building a website can be done in 10 simple steps:\\nStep 1:" -n 400 -e
     ```
 
-# But... which ChatBot *should* you run?  which *can* you run?
+# Which ChatBot *should* you run?  which *can* you run?
 
 [Llama 3](https://llama.meta.com/llama3/) was released with two variants: 8B parameters and 70B parameters.  Which one to run depends critically on two questions.
 
 ## Quantization: How much RAM do you need?
 
-"Parameters" in a model refer to the learned floating point
-weights in the neural net.  The more bits you use, the more
+"Parameters" in a model refer to the floating point
+weights in the neural net.  The more bits you use for each parameter, the more
 accurate your math will be, but the more memory you will need.
-And as Finbarr Timbers describes in [How is LLaMa.cpp
+As Finbarr Timbers describes in [How is LLaMa.cpp
 possible?](https://finbarr.ca/how-is-llama-cpp-possible/), running
 "inference" in a language model, especially for a single chat session,
-is *dominated by the amount of RAM being accessed*.  Modern CPUs and
-GPUs can do a lot of multiplies while waiting on system memory.
+is *dominated by the amount of RAM being accessed*.
 
-Researchers have developed [AWQ](https://arxiv.org/abs/2306.00978) and [QuaRot](https://arxiv.org/pdf/2404.00456) as two quantization methods producing models that numerically retain 99% of the perplexity of the original 16 bit models using only 4 bits per parameter.  Tim Dettmers also found [4 bits per parameter optimal](https://arxiv.org/abs/2212.09720) and in a blind test, [users found the differences betwwen 4 and 16 bit parameter models insignificant](https://github.com/ggerganov/llama.cpp/discussions/5962) though results rapidly degraded when trying to quantize to fewer than 4 bits per parameter.
+Perplexity measures how faithfully an LLM represents the statistics of a language -- so it's often used as a measure of how much accuracy you lose when reducing the precision of the weights in a neural net.  Ways of approximating, say, 16 bit floating point numbers in fewer
+bits are called quantization.  The [AWQ](https://arxiv.org/abs/2306.00978) and [QuaRot](https://arxiv.org/pdf/2404.00456) quantization methods have empirically produced models that  retain 99% of the perplexity of the original 16 bit models using only 4 bits per parameter(!)  This magical result that [4 bits per parameter is optimal](https://arxiv.org/abs/2212.09720) was confirmed by Tim Dettmers and [blind user testing](https://github.com/ggerganov/llama.cpp/discussions/5962), though results rapidly degrade when trying to quantize these models to fewer than 4 bits per parameter.
 
 So, assuming 4 bit quantization:
 + For Llama 3 70B you need at least 35 GB of RAM
@@ -124,7 +128,7 @@ So, assuming 4 bit quantization:
 | [google/gemma-7b-it](https://huggingface.co/google/gemma-7b-it)    | Gemma \*       | 1    | 7   | 78.3 | 53.52 | 29.19 |      | 24.4 | 17.7 |
 
 
-The "frontier models" like Gemini Pro 1.5 are *really good*.  Like, slight tweaks of Gemini get [a score of 91.1% US Medical Licensing Exam](https://arxiv.org/pdf/2404.18416)  You can be a licensed doctor in the US with a score of [about 60%](https://www.usmle.org/bulletin-information/scoring-and-score-reporting).  [Llama 3 70b gets 88% on the USMLE](https://ai-assisted-healthcare.com/2024/04/21/llama3-70b-performs-on-par-with-gpt-4-turbo-on-answering-usmle-questions/) while its smaller 8B sibling gets about [66%](https://ai-assisted-healthcare.com/2024/04/21/llama3-70b-performs-on-par-with-gpt-4-turbo-on-answering-usmle-questions/).  If you need medical advice, do you really want to ask a doctor who barely passed their licensing exam?
+The "frontier models" like Gemini Pro 1.5 are *really good*.  Like, slight tweaks of Gemini get [a score of 91.1% US Medical Licensing Exam](https://arxiv.org/pdf/2404.18416)  You can be a licensed doctor in the US with a score of [about 60%](https://www.usmle.org/bulletin-information/scoring-and-score-reporting).  [Llama 3 70b gets 88% on the USMLE](https://ai-assisted-healthcare.com/2024/04/21/llama3-70b-performs-on-par-with-gpt-4-turbo-on-answering-usmle-questions/) while its smaller 8B sibling gets about [66%](https://ai-assisted-healthcare.com/2024/04/21/llama3-70b-performs-on-par-with-gpt-4-turbo-on-answering-usmle-questions/).  If you need medical advice, do you really want to ask a doctor who barely passed their licensing exam?  Run the 70B model.
 
 How about programming ability?  The final two columns cover that. [HumanEval](https://arxiv.org/pdf/2404.14219) was an early basic Python programming test suite, and  HumanEval+MBPP+ Avg is a [much expanded](https://openreview.net/forum?id=1qvx610Cu7) version.  GSM8K is a set of grade school math word problems.  From the scores above, you can see: if you need coherent reasoning or the ability to write *good code* use a paid chatbot (Gemini, GPT-4, Claude-Opus) or run Llama 70B.
 
@@ -134,7 +138,7 @@ If you're generating a horoscope reading, any of the above models is probably fi
 > 
 > The above table's numbers are taken from either (a) the [Open LLM Leaderboard](https://huggingface.co/spaces/HuggingFaceH4/open_llm_leaderboard) (b) the model's technical report, or (c) a leaderboard associated with the linked test set.
 >
-> Huggingface's Open LLM Leaderboard team found getting scores for supposedly standardized problem sets is [fraught with subtleties](https://huggingface.co/blog/open-llm-leaderboard-mmlu). How exactly do you prompt the model?  How do you evaluate whether the free-form output is the "right answer"?  If giving examples is part of your prompt, how many examples do you give?  Do you do [Chain of Thought](https://github.com/logikon-ai/awesome-deliberative-prompting/#readme) prompting?  Further complicating things, general methods advance to train a base model to think better each week: [RLHF](https://huggingface.co/blog/rlhf), [DPO](https://openreview.net/forum?id=HPuSIXJaa9), [IPO](https://arxiv.org/pdf/2404.19733) are just the latest.
+> Huggingface's Open LLM Leaderboard team found getting scores for supposedly standardized problem sets is [fraught with subtleties](https://huggingface.co/blog/open-llm-leaderboard-mmlu). How exactly do you prompt the model?  How do you evaluate whether the free-form output is the "right answer"?  If giving examples is part of your prompt, how many examples do you give?  Do you do [Chain of Thought](https://github.com/logikon-ai/awesome-deliberative-prompting/#readme) prompting?  Further complicating things, general methods pop up to "uplevel" a base AI model to think better each week: [RLHF](https://huggingface.co/blog/rlhf), [DPO](https://openreview.net/forum?id=HPuSIXJaa9), [IPO](https://arxiv.org/pdf/2404.19733) are just a few.
 >
 > \* The licenses even for relatively "open" models often come with prohibitions against using them for illegal or societally negative activities, making too much money from them, using them to improve your own model, or not giving prominent credit to the model.
 
@@ -167,12 +171,12 @@ For a single interactive chat session, running on a CPU with lots of memory is s
 | Llama 2 70B FP8 | Nx H100s @ perplexity.ai| Nx 700 W| Nx 2,000 GB/s |  [30 tok/s](https://github.com/ray-project/llmperf-leaderboard) |
 | Llama 3 70B FP16 | Groq LPUs @ groq.com | Nx 215 W  | Nx 80,000 GB/s | [185 tok/s](https://github.com/ray-project/llmperf-leaderboard) |
 
-Note: Nvidia claims much faster inference on their hardware with their new [ChatRTX](https://www.nvidia.com/en-us/ai-on-rtx/chatrtx/) app and its underlying [TensorRT-LLM](https://developer.nvidia.com/blog/turbocharging-meta-llama-3-performance-with-nvidia-tensorrt-llm-and-nvidia-triton-inference-server/) library, but [it's a trick to get it running as of May 2024](https://www.reddit.com/r/LocalLLaMA/comments/1b4iy16/is_there_any_benchmark_data_comparing_performance/)
+The unlinked stats above I got at home running a `llamafile`.  Nvidia, AMD and friends are pushing each month to optimize the LLM use case, so you may be able to get somewhat faster generation using their [ChatRTX](https://www.nvidia.com/en-us/ai-on-rtx/chatrtx/) app and its underlying [TensorRT-LLM](https://developer.nvidia.com/blog/turbocharging-meta-llama-3-performance-with-nvidia-tensorrt-llm-and-nvidia-triton-inference-server/) library, but [it may be tricky to get it running](https://www.reddit.com/r/LocalLLaMA/comments/1b4iy16/is_there_any_benchmark_data_comparing_performance/)
 
 # Conclusion as of 2 May 2024
 
 + Running a high end AI model at home (Llama 3 70B) is doable but painfully slow for $2k, and reasonable at $6k.
 + If you have GPUs but they don't have enough VRAM for your model, they don't buy you much!
 + A high end Mac is extremely competitive and uses much less power than a multiple-GPU PC for LLM inference.
-+ [groq](https://groq.com/) is *so much faster* than running it yourself, that if you're just talking to Llama 3... just use groq.
++ [groq](https://groq.com/) is *so much faster* than running it yourself, that if you're just talking to Llama 3... just use groq., the release of Llama 3 means: *you can now run a cutting-edge AI at home*!
 
