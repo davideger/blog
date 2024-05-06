@@ -178,5 +178,6 @@ The unlinked stats above I got at home running a `llamafile`.  Nvidia, AMD and f
 + Running a high end AI model at home (Llama 3 70B) is doable but painfully slow for $2k, and reasonable at $6k.
 + If you have GPUs but they don't have enough VRAM for your model, they don't buy you much!
 + A high end Mac is extremely competitive and uses much less power than a multiple-GPU PC for LLM inference.
-+ [groq](https://groq.com/) is *so much faster* than running it yourself, that if you're just talking to Llama 3... just use groq., the release of Llama 3 means: *you can now run a cutting-edge AI at home*!
++ [groq](https://groq.com/) is *so much faster* than running it yourself, that if you're just talking to Llama 3... just use groq.
+
 
