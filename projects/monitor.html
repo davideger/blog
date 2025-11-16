@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Vocal Pitch Monitor (YIN)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Set default font to Inter -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fc;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        /* Custom styling for the pitch indicator */
+        .cents-indicator-container {
+            width: 100%;
+            height: 12px;
+            border-radius: 9999px; 
+            overflow: hidden;
+            background-color: #e5e7eb; 
+            position: relative;
+        }
+        .cents-indicator-marker {
+            position: absolute;
+            top: 0;
+            left: 50%; 
+            width: 6px;
+            height: 100%;
+            transform: translateX(-50%);
+            background-color: #fca5a5; 
+            z-index: 10;
+        }
+        .cents-indicator-bar {
+            height: 100%;
+            transition: transform 0.1s ease-out; 
+        }
+
+        /* --- Keyboard Styling --- */
+        .keyboard-wrapper {
+            margin-bottom: 8px; 
+            padding-top: 35px; 
+            position: relative;
+            width: 100%;
+        }
+
+        .keyboard-container {
+            display: flex;
+            position: relative;
+            height: 120px; 
+            user-select: none;
+            border-radius: 8px 8px 0 0; 
+            border: 1px solid #ccc;
+            border-bottom: none;
+        }
+
+        .key {
+            position: relative;
+            box-sizing: border-box;
+            cursor: pointer;
+            transition: background-color 0.05s ease;
+        }
+
+        .white-key {
+            flex-grow: 1;
+            height: 100%;
+            border-left: 1px solid #d1d5db; 
+            background-color: white;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            padding-bottom: 5px;
+            font-size: 11px;
+            color: #555;
+        }
+        .white-key:first-child {
+            border-left: none; 
+        }
+        
+        /* White Key Active State (In Range) */
+        .white-key.key-active {
+            background-color: #fef08a; 
+        }
+
+        /* White Key Playing State (Tone Generation) */
+        .white-key.key-playing {
+            background-color: #a5b4fc !important; /* Indigo-300 */
+            box-shadow: 0 0 10px #6366f1;
+        }
+        
+        .black-key {
+            position: absolute;
+            width: 3.17%; /* Responsive width for black keys */
+            height: 60%; 
+            background-color: black;
+            border: 1px solid #333;
+            border-top: none; 
+            z-index: 2;
+            top: 0;
+            /* pointer-events: none removed in previous fix */
+            border-radius: 0 0 5px 5px;
+        }
+        
+        /* Black Key Active State (In Range) */
+        .black-key.key-active {
+            background-color: #b91c1c; 
+        }
+
+        /* Black Key Playing State (Tone Generation) */
+        .black-key.key-playing {
+            background-color: #1e3a8a !important; /* Blue-900 */
+            box-shadow: 0 0 10px #3b82f6;
+        }
+
+        /* Red dot indicator for the current pitch (default) */
+        .key-active .indicator-dot {
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+
+        .indicator-dot {
+            position: absolute;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%) scale(0.5);
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background-color: #ef4444; /* Red-500 */
+            box-shadow: 0 0 7px rgba(239, 68, 68, 1);
+            z-index: 3; 
+            opacity: 0;
+            transition: opacity 0.1s ease, transform 0.1s ease;
+        }
+
+        /* PURPLE styling for notes below range */
+        .key-below-range .indicator-dot {
+            background-color: #9333ea; /* Violet-600 */
+            box-shadow: 0 0 7px rgba(147, 51, 234, 1);
+        }
+
+        /* Style for the octave offset label - positioned high above the key */
+        .key-offset-label {
+            position: absolute;
+            top: -30px; 
+            left: 50%;
+            transform: translateX(-50%);
+            font-weight: bold;
+            font-size: 14px;
+            padding: 2px 4px;
+            border-radius: 4px;
+            z-index: 5;
+            opacity: 0;
+            transition: opacity 0.1s;
+            white-space: nowrap; 
+        }
+
+        .key-below-range .key-offset-label {
+            opacity: 1;
+            color: #9333ea;
+            background-color: white;
+            border: 2px solid #9333ea;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* Style for the pitch history canvas */
+        #pitch-history-canvas {
+            display: block;
+            width: 100%;
+            height: 90px;
+            background-color: #e5e7eb; 
+            border: 1px solid #ccc;
+            border-top: none;
+            border-radius: 0 0 8px 8px; 
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="w-full max-w-xl p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
+    <h1 class="text-3xl font-extrabold text-center mb-2 text-gray-800">
+        🎤 Vocal Pitch Monitor
+    </h1>
+    <p class="text-center text-sm text-gray-500 mb-6">
+        Displays real-time pitch using the robust **YIN** algorithm. **Click a key to hear the tone!**
+    </p>
+
+    <!-- Piano Keyboard Visualization and Label Space -->
+    <div class="keyboard-wrapper">
+        <div id="keyboard-visualization" class="keyboard-container">
+            <!-- Keys are dynamically inserted here by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Pitch History Visualization -->
+    <canvas id="pitch-history-canvas" width="500" height="90"></canvas>
+
+    <!-- Pitch Display Area -->
+    <div class="flex flex-col items-center justify-center p-8 bg-indigo-50 rounded-lg mt-8 mb-8">
+        <!-- Current Note -->
+        <div class="h-28 flex items-center justify-center">
+            <span id="note-display" class="text-8xl font-black text-gray-900 transition-colors duration-200">
+                --
+            </span>
+        </div>
+
+        <!-- Frequency/Cents Deviation Label -->
+        <div id="freq-cents-label" class="text-lg font-semibold h-6 text-gray-600 mt-2">
+            Waiting for input...
+        </div>
+    </div>
+
+    <!-- Cents Deviation Indicator -->
+    <div class="mb-8">
+        <div class="flex justify-between text-sm font-medium mb-2 text-gray-500">
+            <span>-50 Cents (Flat)</span>
+            <span class="text-green-600 font-bold">In Tune</span>
+            <span>+50 Cents (Sharp)</span>
+        </div>
+        <div class="cents-indicator-container">
+            <div id="cents-bar" class="cents-indicator-bar absolute left-1/2 w-4 h-full rounded-full bg-gray-400" style="transform: translateX(calc(-50% + 0px));">
+                <!-- Bar is controlled by JS to indicate pitch deviation -->
+            </div>
+            <div class="cents-indicator-marker"></div>
+        </div>
+    </div>
+
+    <!-- Status and Controls -->
+    <div class="flex flex-col items-center">
+        <button id="startButton" class="w-full py-3 px-6 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition duration-150 active:scale-95">
+            Start Microphone
+        </button>
+        <p id="status-message" class="mt-4 text-center text-sm text-red-500 font-medium hidden">
+            Microphone access denied or error.
+        </p>
+    </div>
+
+    <!-- Debug Panel -->
+    <div class="mt-6 p-4 bg-gray-100 rounded-lg">
+        <h3 class="text-md font-bold text-gray-700 mb-2">Debug Info (For Troubleshooting)</h3>
+        <div class="text-sm space-y-1">
+            <p><span class="font-medium">Volume (RMS):</span> <span id="debug-rms" class="font-mono text-gray-900">0.000</span></p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Global Variables and Constants ---
+    const NOTE_STRINGS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const A4 = 440;
+    const C0 = A4 * Math.pow(2, -4.75); // Frequency of C0 (around 16.35 Hz)
+    
+    // MIDI Range for Keyboard and History Plot: F2 (MIDI 41) to C5 (MIDI 72)
+    const START_MIDI = 41; // F2 
+    const END_MIDI = 72;   // C5
+    const MIDI_RANGE = END_MIDI - START_MIDI; // 31 notes
+    
+    // Audio and Monitoring States
+    let audioContext = null; 
+    let analyser = null;
+    let mediaStreamSource = null;
+    let buffer = null;
+    let isMonitoring = false;
+    let rafId = null; 
+    let currentOscillator = null; 
+    
+    // Pitch History Variables
+    let pitchHistory = []; 
+    const HISTORY_DURATION_MS = 10000; 
+    const HISTORY_HEIGHT_PX = 90; 
+    
+    // Color Constants
+    const COLOR_IN_RANGE = '#ef4444'; // Red
+    const COLOR_BELOW_RANGE = '#9333ea'; // Purple
+
+    // DOM Elements
+    const startButton = document.getElementById('startButton');
+    const noteDisplay = document.getElementById('note-display');
+    const freqCentsLabel = document.getElementById('freq-cents-label');
+    const centsBar = document.getElementById('cents-bar');
+    const statusMessage = document.getElementById('status-message');
+    const debugRms = document.getElementById('debug-rms');
+    const keyboardContainer = document.getElementById('keyboard-visualization');
+    const historyCanvas = document.getElementById('pitch-history-canvas');
+    const ctx = historyCanvas.getContext('2d');
+    
+    // YIN Parameters
+    const YIN_THRESHOLD = 0.15; 
+    const SILENCE_THRESHOLD = 0.015; 
+    
+    // Keyboard Constants
+    const WHITE_KEY_COUNT = 19; 
+    const SHARP_NOTE_INDICES = [1, 3, 6, 8, 10]; 
+
+    // --- Utility Functions ---
+
+    function frequencyToMidi(frequency) {
+        return 12 * Math.log2(frequency / A4) + 69;
+    }
+
+    function midiToFrequency(midiNote) {
+        return A4 * Math.pow(2, (midiNote - 69) / 12);
+    }
+
+    function midiToNote(midiNote, frequency) {
+        const midiInt = Math.round(midiNote);
+        const name = NOTE_STRINGS[midiInt % 12];
+        const octave = Math.floor(midiInt / 12) - 1;
+
+        const closestFreq = C0 * Math.pow(2, midiInt / 12);
+        const cents = Math.round(1200 * Math.log2(frequency / closestFreq));
+
+        return {
+            note: name + octave,
+            cents: cents,
+            freq: closestFreq,
+            midiNote: midiNote, 
+            midiInt: midiInt
+        };
+    }
+
+    // --- Tone Generation Functions ---
+
+    function stopPitch() {
+        if (currentOscillator) {
+            // Use fade out for smoother release
+            currentOscillator.gainNode.gain.setValueAtTime(currentOscillator.gainNode.gain.value, audioContext.currentTime);
+            currentOscillator.gainNode.gain.linearRampToValueAtTime(0.0001, audioContext.currentTime + 0.05);
+
+            // Stop and disconnect after fade
+            currentOscillator.stop(audioContext.currentTime + 0.05); 
+            currentOscillator.disconnect();
+            currentOscillator = null;
+        }
+    }
+
+    async function playPitch(midiNote) {
+        if (!audioContext) {
+            console.error("AudioContext not initialized.");
+            return;
+        }
+        
+        // Ensure context is running when user interacts
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+
+        stopPitch(); // Stop any pitch currently playing
+
+        const freq = midiToFrequency(midiNote);
+        
+        // FIX 1: Implement frequency-dependent gain compensation (Louder low notes)
+        const normalizedMidi = (midiNote - START_MIDI) / MIDI_RANGE; 
+        const invertedNormalizedMidi = 1.0 - normalizedMidi; 
+        const targetGain = 0.3 + (invertedNormalizedMidi * 0.4); // Range: 0.3 (high) to 0.7 (low)
+        
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        // Set initial gain
+        gainNode.gain.setValueAtTime(targetGain, audioContext.currentTime); 
+        
+        oscillator.type = 'sine'; 
+        oscillator.frequency.setValueAtTime(freq, audioContext.currentTime);
+
+        // Connect nodes: Oscillator -> Gain -> Destination
+        oscillator.connect(gainNode).connect(audioContext.destination);
+
+        oscillator.start();
+        
+        // Attach the gain node to the oscillator object for easier access in stopPitch
+        oscillator.gainNode = gainNode;
+        currentOscillator = oscillator;
+    }
+
+    // --- Keyboard Setup ---
+
+    function generateKeyboard() {
+        // Clear existing keys
+        keyboardContainer.innerHTML = ''; 
+        
+        const WHITE_KEY_WIDTH_PERCENT = 100 / WHITE_KEY_COUNT; 
+        let whiteKeysBefore = 0; 
+
+        for (let midi = START_MIDI; midi <= END_MIDI; midi++) {
+            const noteIndex = midi % 12; 
+            const noteName = NOTE_STRINGS[noteIndex];
+            const octave = Math.floor(midi / 12) - 1;
+            
+            const isSharp = SHARP_NOTE_INDICES.includes(noteIndex);
+
+            const keyElement = document.createElement('div');
+            keyElement.id = `midi-${midi}`;
+            keyElement.classList.add('key');
+            keyElement.setAttribute('data-midi', midi);
+            
+            // Add indicator dot and offset label to ALL keys
+            keyElement.innerHTML = '<div class="indicator-dot"></div>'; 
+            keyElement.innerHTML += `<span class="key-offset-label" id="offset-${midi}"></span>`;
+
+            // --- Add Playback Event Listeners ---
+            
+            // Unified handlers for press and release
+            const handlePress = (e) => {
+                // Prevent default touch behavior
+                if (e.type === 'touchstart') e.preventDefault(); 
+                
+                // Only act if it's the primary button (mouse 1 or first touch)
+                if (e.type === 'mousedown' && e.button !== 0) return;
+                
+                const midi = parseInt(e.currentTarget.getAttribute('data-midi'));
+                playPitch(midi);
+                e.currentTarget.classList.add('key-playing');
+            };
+
+            const handleRelease = (e) => {
+                // Check if the target is still the one being played
+                if (currentOscillator) {
+                    const midi = parseInt(e.currentTarget.getAttribute('data-midi'));
+                    // Only stop the pitch if the element being released matches the currently playing pitch
+                    if (midiToFrequency(midi).toFixed(2) === currentOscillator.frequency.value.toFixed(2)) {
+                         stopPitch();
+                    }
+                }
+                e.currentTarget.classList.remove('key-playing');
+            };
+
+            // Mouse Events
+            keyElement.addEventListener('mousedown', handlePress);
+            keyElement.addEventListener('mouseup', handleRelease);
+            keyElement.addEventListener('mouseout', (e) => {
+                 // Stop pitch if mouse is dragged off the key while held down
+                 if (e.buttons === 1) { 
+                      handleRelease(e);
+                 }
+            });
+
+            // Touch Events (passive: false is necessary for preventDefault on touchstart/touchend)
+            keyElement.addEventListener('touchstart', handlePress, { passive: false });
+            keyElement.addEventListener('touchend', handleRelease, { passive: false });
+            
+            // --- End Playback Event Listeners ---
+
+
+            if (isSharp) {
+                // Black Key
+                keyElement.classList.add('black-key');
+                
+                // FIX 2: Revert to responsive percentage width and positioning
+                keyElement.style.width = `3.17%`; // Use CSS defined percentage width
+
+                // Calculate position relative to the left edge of the white key container (in percent)
+                const offsetPosition = whiteKeysBefore * WHITE_KEY_WIDTH_PERCENT;
+                
+                // Adjust left position to center the black key in the gap
+                // 3.17% width is approx 0.3 * WHITE_KEY_WIDTH_PERCENT
+                keyElement.style.left = `${offsetPosition - (WHITE_KEY_WIDTH_PERCENT * 0.3)}%`; 
+                
+                keyboardContainer.appendChild(keyElement);
+
+            } else {
+                // White Key
+                keyElement.classList.add('white-key');
+                keyElement.innerHTML += `<span>${noteName}${octave}</span>`;
+                keyElement.style.width = `${WHITE_KEY_WIDTH_PERCENT}%`; 
+                keyboardContainer.appendChild(keyElement);
+                whiteKeysBefore++; 
+            }
+        }
+    }
+
+    // --- Pitch Detection (YIN Algorithm) ---
+
+    function yinDetectPitch(buffer, sampleRate) {
+        const BUF_SIZE = buffer.length;
+        const HALF_SIZE = BUF_SIZE / 2;
+        
+        const MIN_FREQ_SAMPLES = Math.floor(sampleRate / 1000); 
+        const MAX_FREQ_SAMPLES = Math.floor(sampleRate / 70); 
+
+        let rms = 0;
+        for (let i = 0; i < BUF_SIZE; i++) {
+            rms += buffer[i] * buffer[i];
+        }
+        rms = Math.sqrt(rms / BUF_SIZE);
+        
+        debugRms.textContent = rms.toFixed(3);
+
+        if (rms < SILENCE_THRESHOLD) {
+            return 0;
+        }
+
+        const d = new Array(HALF_SIZE).fill(0);
+        for (let tau = 0; tau < HALF_SIZE; tau++) {
+            for (let i = 0; i < HALF_SIZE; i++) {
+                const delta = buffer[i] - buffer[i + tau];
+                d[tau] += delta * delta;
+            }
+        }
+
+        d[0] = 1; 
+        let cumulativeSum = 0;
+        for (let tau = 1; tau < HALF_SIZE; tau++) {
+            cumulativeSum += d[tau];
+            d[tau] = d[tau] * tau / cumulativeSum; 
+        }
+
+        let tau = MIN_FREQ_SAMPLES;
+        
+        while (tau < MAX_FREQ_SAMPLES) {
+            if (d[tau] < YIN_THRESHOLD) {
+                while (tau + 1 < MAX_FREQ_SAMPLES && d[tau + 1] < d[tau]) {
+                    tau++;
+                }
+
+                if (tau > 0 && tau < MAX_FREQ_SAMPLES - 1) {
+                    const y0 = d[tau - 1];
+                    const y1 = d[tau];
+                    const y2 = d[tau + 1];
+                    const shift = (y2 - y0) / (2 * (2 * y1 - y0 - y2));
+                    return sampleRate / (tau + shift);
+                }
+                
+                return sampleRate / tau;
+            }
+            tau++;
+        }
+
+        return 0; 
+    }
+    
+    // --- Pitch History Drawing ---
+    
+    function drawPitchHistory() {
+        ctx.clearRect(0, 0, historyCanvas.width, historyCanvas.height);
+
+        if (pitchHistory.length < 2) {
+            return;
+        }
+        
+        const now = performance.now();
+        
+        // Filter out old history points
+        pitchHistory = pitchHistory.filter(p => now - p.timestamp < HISTORY_DURATION_MS);
+        
+        const containerWidth = keyboardContainer.offsetWidth;
+        historyCanvas.width = containerWidth;
+        
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        
+        // Helper function to map MIDI note to canvas X position
+        const mapMidiToX = (midi) => {
+            let currentMidi = midi;
+            
+            // Map the actual MIDI note to the visible keyboard range
+            if (currentMidi < START_MIDI) {
+                const difference = Math.floor((currentMidi - START_MIDI) / 12);
+                currentMidi -= difference * 12;
+            } else if (currentMidi > END_MIDI) {
+                 const difference = Math.floor((currentMidi - END_MIDI) / 12);
+                 currentMidi -= difference * 12;
+            }
+
+            const midiNormalized = (currentMidi - START_MIDI) / MIDI_RANGE;
+            return Math.max(0, Math.min(containerWidth, midiNormalized * containerWidth)); 
+        };
+
+        // Helper function to map timestamp to canvas Y position
+        const mapTimestampToY = (timestamp) => {
+            const age = now - timestamp;
+            return (age / HISTORY_DURATION_MS) * HISTORY_HEIGHT_PX;
+        };
+
+
+        let firstDetectedPoint = pitchHistory.find(p => p.midiNote > 0);
+        if (!firstDetectedPoint) return;
+
+        let currentStrokeStyle = firstDetectedPoint.isBelowRange ? COLOR_BELOW_RANGE : COLOR_IN_RANGE; 
+        ctx.strokeStyle = currentStrokeStyle;
+        ctx.beginPath();
+        
+        // Find the index of the first detected point to start the drawing
+        let startIndex = pitchHistory.indexOf(firstDetectedPoint);
+        
+        // Move to the starting point
+        let x0 = mapMidiToX(firstDetectedPoint.midiNote);
+        let y0 = mapTimestampToY(firstDetectedPoint.timestamp);
+        ctx.moveTo(x0, y0);
+
+
+        for (let i = startIndex + 1; i < pitchHistory.length; i++) {
+            const p1 = pitchHistory[i];
+            const p0 = pitchHistory[i-1];
+            
+            if (p1.midiNote <= 0) {
+                 ctx.stroke(); // End current segment
+                 ctx.beginPath(); // Start new segment later
+                 continue;
+            }
+            
+            if (p0.midiNote > 0) {
+                const color1 = p1.isBelowRange ? COLOR_BELOW_RANGE : COLOR_IN_RANGE;
+                
+                const x1 = mapMidiToX(p1.midiNote);
+                const y1 = mapTimestampToY(p1.timestamp);
+                
+                // If the color changes, finish the previous segment and start a new one
+                if (color1 !== currentStrokeStyle) {
+                    ctx.stroke(); 
+
+                    // Start a new path from the previous point's coordinates (p0)
+                    ctx.strokeStyle = color1;
+                    currentStrokeStyle = color1;
+                    ctx.beginPath();
+                    ctx.moveTo(mapMidiToX(p0.midiNote), mapTimestampToY(p0.timestamp));
+                }
+
+                // Draw line segment
+                ctx.lineTo(x1, y1);
+            } else {
+                // If p0 was a silence/no-detection point, start a new path from p1
+                currentStrokeStyle = p1.isBelowRange ? COLOR_BELOW_RANGE : COLOR_IN_RANGE;
+                ctx.strokeStyle = currentStrokeStyle;
+                ctx.beginPath();
+                ctx.moveTo(mapMidiToX(p1.midiNote), mapTimestampToY(p1.timestamp));
+            }
+        }
+        
+        ctx.stroke(); // Draw the final segment
+    }
+
+
+    // --- Monitoring Loop and UI Update ---
+
+    function updatePitch() {
+        if (!analyser || !isMonitoring) {
+            return;
+        }
+        
+        // Fix for multiple persistent red dots: Unconditional cleanup of ALL active keys 
+        document.querySelectorAll('.key-active, .key-below-range').forEach(key => {
+            // Only remove highlight classes if the key is NOT currently being played by the user
+            if (!key.classList.contains('key-playing')) { 
+                key.classList.remove('key-active', 'key-below-range');
+                const offsetLabel = key.querySelector('.key-offset-label');
+                if (offsetLabel) offsetLabel.textContent = '';
+            }
+        });
+
+        analyser.getFloatTimeDomainData(buffer);
+        const frequency = yinDetectPitch(buffer, audioContext.sampleRate);
+        const now = performance.now();
+        
+        if (frequency > 0) {
+            const { note, cents, midiInt, midiNote } = midiToNote(frequencyToMidi(frequency), frequency);
+            
+            let activeMidiInt = midiInt;
+            let octaveDifference = 0;
+            let isBelowRange = false;
+
+            if (midiInt < START_MIDI) {
+                isBelowRange = true;
+                
+                // Calculate how many octaves below the start range the voice is 
+                octaveDifference = Math.floor((midiInt - START_MIDI) / 12); 
+                
+                // Map the actual MIDI note back to the visible keyboard range
+                activeMidiInt = midiInt - (octaveDifference * 12);
+            } else if (midiInt > END_MIDI) {
+                 // For notes above the range, map them down to the visible range, but don't flag as "below range"
+                 octaveDifference = Math.floor((midiInt - END_MIDI) / 12);
+                 activeMidiInt = midiInt - (octaveDifference * 12);
+            }
+            
+            // --- Record to History (including sub-octave status) ---
+            pitchHistory.push({ midiNote: midiNote, timestamp: now, isBelowRange: isBelowRange });
+
+            // --- Keyboard Highlight Update ---
+            const keyElement = document.getElementById(`midi-${activeMidiInt}`);
+            if (keyElement) {
+                keyElement.classList.add('key-active');
+
+                if (isBelowRange) {
+                    keyElement.classList.add('key-below-range');
+                    const offsetLabel = document.getElementById(`offset-${activeMidiInt}`);
+                    if (offsetLabel) {
+                        // Display the negative integer part of the difference (e.g., -1, -2)
+                        offsetLabel.textContent = octaveDifference.toString(); 
+                    }
+                } else {
+                     keyElement.classList.remove('key-below-range');
+                     const offsetLabel = document.getElementById(`offset-${activeMidiInt}`);
+                     if (offsetLabel) offsetLabel.textContent = '';
+                }
+            }
+
+            // 1. Update Note Display
+            noteDisplay.textContent = note;
+
+            // 2. Update Frequency/Cents Label
+            freqCentsLabel.textContent = `${frequency.toFixed(2)} Hz (${cents} cents)`;
+
+            // 3. Update Cents Bar and Note Color
+            const translation = Math.max(-50, Math.min(50, cents)); 
+
+            let barColor;
+            let noteColor;
+            if (Math.abs(cents) <= 5) {
+                barColor = 'bg-green-500';
+                noteColor = 'text-green-600';
+            } else if (Math.abs(cents) <= 20) {
+                barColor = 'bg-yellow-500';
+                noteColor = 'text-yellow-600';
+            } else {
+                barColor = 'bg-red-500';
+                noteColor = 'text-red-600';
+            }
+            
+            // If below range, use purple text for the note display and indicator
+            if (isBelowRange) {
+                noteColor = 'text-violet-600';
+            }
+
+            centsBar.className = `cents-indicator-bar absolute left-1/2 w-4 h-full rounded-full ${barColor}`;
+            centsBar.style.transform = `translateX(calc(-50% + ${translation}px))`;
+
+            noteDisplay.className = `text-8xl font-black transition-colors duration-200 ${noteColor}`;
+
+        } else {
+            // No pitch detected 
+            noteDisplay.textContent = '--';
+            noteDisplay.className = 'text-8xl font-black text-gray-900 transition-colors duration-200';
+            freqCentsLabel.textContent = 'Waiting for stable pitch...';
+            centsBar.className = 'cents-indicator-bar absolute left-1/2 w-4 h-full rounded-full bg-gray-400';
+            centsBar.style.transform = `translateX(calc(-50% + 0px))`; 
+            
+            // Record non-detection to history (midiNote 0)
+            pitchHistory.push({ midiNote: 0, timestamp: now, isBelowRange: false });
+        }
+        
+        drawPitchHistory();
+
+        rafId = requestAnimationFrame(updatePitch);
+    }
+
+    // --- Initialization and Event Handling ---
+
+    async function startMonitor() {
+        if (isMonitoring) return;
+
+        try {
+            // Ensure context is running before trying to get the stream
+            if (audioContext && audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+
+            // Request microphone access
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            analyser = audioContext.createAnalyser();
+            mediaStreamSource = audioContext.createMediaStreamSource(stream);
+
+            analyser.fftSize = 2048; 
+            buffer = new Float32Array(analyser.fftSize);
+
+            mediaStreamSource.connect(analyser);
+
+            startButton.textContent = 'Monitoring... (Click to stop)';
+            startButton.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+            startButton.classList.add('bg-red-600', 'hover:bg-red-700');
+            statusMessage.classList.add('hidden');
+            isMonitoring = true;
+            
+            pitchHistory = []; 
+            updatePitch();
+
+        } catch (err) {
+            console.error('Error accessing microphone:', err);
+            statusMessage.textContent = 'Microphone access denied or error: ' + (err.name || 'Unknown error');
+            statusMessage.classList.remove('hidden');
+            startButton.textContent = 'Start Microphone';
+            startButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+            startButton.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+            isMonitoring = false;
+        }
+    }
+
+    function stopMonitor() {
+        if (!isMonitoring) return;
+
+        isMonitoring = false;
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+        }
+
+        if (mediaStreamSource) {
+            mediaStreamSource.mediaStream.getTracks().forEach(track => track.stop());
+            mediaStreamSource.disconnect();
+        }
+        if (analyser) {
+            analyser.disconnect();
+        }
+        
+        stopPitch(); 
+
+        // Reset UI
+        startButton.textContent = 'Start Microphone';
+        startButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+        startButton.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+        noteDisplay.textContent = '--';
+        noteDisplay.className = 'text-8xl font-black text-gray-900 transition-colors duration-200';
+        freqCentsLabel.textContent = 'Waiting for input...';
+        centsBar.className = 'cents-indicator-bar absolute left-1/2 w-4 h-full rounded-full bg-gray-400';
+        centsBar.style.transform = `translateX(calc(-50% + 0px))`; 
+        debugRms.textContent = '0.000';
+        pitchHistory = []; 
+        drawPitchHistory(); 
+        
+        // Clear all keyboard highlights
+        document.querySelectorAll('.key-active, .key-below-range').forEach(key => {
+            key.classList.remove('key-active', 'key-below-range');
+            const offsetLabel = key.querySelector('.key-offset-label');
+            if (offsetLabel) offsetLabel.textContent = '';
+        });
+    }
+
+    // Set initial size and generate keyboard on load
+    window.onload = () => {
+        // Initialize AudioContext early
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        generateKeyboard();
+        historyCanvas.width = keyboardContainer.offsetWidth;
+    };
+
+    // Main button handler (now handles both click and touchstart for mobile reliability)
+    const handleButtonPress = () => {
+        if (!isMonitoring) {
+            startMonitor();
+        } else {
+            stopMonitor();
+        }
+    };
+    
+    // Attach listeners for both desktop (click) and mobile (touchstart)
+    startButton.addEventListener('click', handleButtonPress);
+    startButton.addEventListener('touchstart', handleButtonPress, { passive: true });
+
+
+    // Ensure canvas resizes with the keyboard container (mobile responsiveness)
+    window.addEventListener('resize', () => {
+        historyCanvas.width = keyboardContainer.offsetWidth;
+        // The black keys are now percentage-based, so no explicit position update is needed
+    });
+
+</script>
+
+</body>
+</html>
