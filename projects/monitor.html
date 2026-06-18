@@ -64,7 +64,7 @@
         .keyboard-container {
             display: flex;
             position: relative;
-            height: 120px; 
+            height: clamp(120px, 12vw, 200px); 
             user-select: none;
             border-radius: 8px 8px 0 0; 
             border: 1px solid #ccc;
@@ -196,7 +196,7 @@
 </head>
 <body>
 
-<div id="app" class="w-full max-w-xl p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
+<div id="app" class="w-full max-w-full p-6 bg-white shadow-2xl rounded-xl border border-gray-100">
     <h1 class="text-3xl font-extrabold text-center mb-2 text-gray-800">
         🎤 Vocal Pitch Monitor
     </h1>
@@ -342,14 +342,19 @@
 
     function stopPitch() {
         if (currentOscillator) {
+            const osc = currentOscillator;
+            currentOscillator = null;
             // Use fade out for smoother release
-            currentOscillator.gainNode.gain.setValueAtTime(currentOscillator.gainNode.gain.value, audioContext.currentTime);
-            currentOscillator.gainNode.gain.linearRampToValueAtTime(0.0001, audioContext.currentTime + 0.05);
+            osc.gainNode.gain.setValueAtTime(osc.gainNode.gain.value, audioContext.currentTime);
+            osc.gainNode.gain.linearRampToValueAtTime(0.0001, audioContext.currentTime + 0.05);
 
             // Stop and disconnect after fade
-            currentOscillator.stop(audioContext.currentTime + 0.05); 
-            currentOscillator.disconnect();
-            currentOscillator = null;
+            osc.stop(audioContext.currentTime + 0.05); 
+            setTimeout(() => {
+                try {
+                    osc.disconnect();
+                } catch(e) {}
+            }, 100);
         }
     }
 
@@ -869,7 +874,7 @@
     // Ensure canvas resizes with the keyboard container (mobile responsiveness)
     window.addEventListener('resize', () => {
         historyCanvas.width = keyboardContainer.offsetWidth;
-        // The black keys are now percentage-based, so no explicit position update is needed
+        drawPitchHistory();
     });
 
 </script>
