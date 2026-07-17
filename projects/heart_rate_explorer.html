@@ -415,8 +415,7 @@ $("fetchBtn").addEventListener("click", async () => {
       const mid = samples[Math.floor(samples.length / 2)].civilMs;
       detailStartMs = mid - DETAIL_HALF;
       detailEndMs = mid + DETAIL_HALF;
-      drawSummary();
-      drawDetail();
+      scheduleCharts();
     }
   } catch (err) {
     setStatus(String(err.message || err), "error");
@@ -463,12 +462,21 @@ function setupCanvas(canvas) {
   canvas.height = Math.round(rect.height * dpr);
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return { ctx, w: rect.width, h: rect.height };
+  // renderable is false when the canvas hasn't been laid out to a usable width
+  // yet; the ResizeObserver will trigger another draw once it has one.
+  return { ctx, w: rect.width, h: rect.height, renderable: rect.width > 2 && rect.height > 2 };
 }
 
 function niceYBounds(values) {
   if (!values.length) return [40, 120];
-  let lo = Math.min(...values), hi = Math.max(...values);
+  // Loop rather than Math.min(...values): the spread form throws RangeError
+  // once the array is large enough (a wide fetch can be hundreds of thousands).
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
   lo = Math.max(0, Math.floor((lo - 5) / 10) * 10);
   hi = Math.ceil((hi + 5) / 10) * 10;
   if (hi - lo < 20) hi = lo + 20;
@@ -600,9 +608,9 @@ function bucketColor(b) {
 
 function drawSummary() {
   const canvas = $("summaryChart");
-  const { ctx, w, h } = setupCanvas(canvas);
+  const { ctx, w, h, renderable } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
-  if (!samples.length) return;
+  if (!samples.length || !renderable) return;
 
   const buckets = summaryBuckets || (summaryBuckets = bucketize());
   const t0 = samples[0].civilMs, t1 = samples[samples.length - 1].civilMs;
@@ -761,9 +769,9 @@ function drawSummary() {
 /* =========================== Detail chart ========================== */
 function drawDetail() {
   const canvas = $("detailChart");
-  const { ctx, w, h } = setupCanvas(canvas);
+  const { ctx, w, h, renderable } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
-  if (detailStartMs == null || !samples.length) return;
+  if (detailStartMs == null || !samples.length || !renderable) return;
 
   const t0 = detailStartMs;
   const t1 = detailEndMs;
@@ -922,11 +930,36 @@ function setStatus(msg, kind) {
   el.className = kind || "";
 }
 
-let resizeTimer = null;
-window.addEventListener("resize", () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { drawSummary(); drawDetail(); }, 120);
-});
+// Single batched redraw path. Every redraw trigger (fetch completion, drags,
+// element resize) routes through here so we draw at most once per frame and
+// always after layout has settled.
+let chartsRaf = 0;
+function scheduleCharts() {
+  if (chartsRaf) return;
+  chartsRaf = requestAnimationFrame(() => {
+    chartsRaf = 0;
+    drawSummary();
+    drawDetail();
+  });
+}
+
+// The real robustness fix: redraw whenever a canvas's own box changes size.
+// This catches the first correct layout (so an early, wrongly-measured draw
+// self-heals), scrollbar appearance, container width changes, and zoom — none
+// of which a window "resize" event reliably covers. Guarded against the
+// observer's own initial synchronous callback doing nothing useful.
+if (typeof ResizeObserver !== "undefined") {
+  const ro = new ResizeObserver(() => scheduleCharts());
+  ro.observe($("summaryChart"));
+  ro.observe($("detailChart"));
+} else {
+  // Fallback for very old browsers.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(scheduleCharts, 120);
+  });
+}
 </script>
 </body>
 </html>
