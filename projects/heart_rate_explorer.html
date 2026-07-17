@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heart Rate Explorer — Google Health API</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root {
+    --ink: #1c2431;
+    --ink-soft: #5a6474;
+    --paper: #fafaf7;
+    --field: #ffffff;
+    --hairline: #e3e1da;
+    --pulse-red: #c62f2f;
+    --calm-green: #2f8f5b;
+    --band-neutral: #5b7a9d;
+    --accent: #c62f2f;
+    --radius: 6px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  header h1 {
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 2px;
+  }
+  header .sub { color: var(--ink-soft); font-size: 14px; margin: 0; }
+  .ekg { display: block; margin: 14px 0 22px; width: 100%; height: 26px; }
+  .ekg polyline { fill: none; stroke: var(--pulse-red); stroke-width: 1.5; opacity: 0.85; }
+
+  fieldset.panel {
+    border: 1px solid var(--hairline);
+    background: var(--field);
+    border-radius: var(--radius);
+    padding: 14px 16px 16px;
+    margin: 0 0 16px;
+  }
+  fieldset.panel legend {
+    padding: 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  .ctl { display: flex; flex-direction: column; gap: 4px; }
+  .ctl label { font-size: 12px; color: var(--ink-soft); }
+  input, select, button {
+    font: inherit;
+    color: var(--ink);
+  }
+  input[type="text"], input[type="datetime-local"], select {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: #fff;
+    padding: 7px 9px;
+  }
+  input[type="text"] { font-family: var(--mono); font-size: 13px; }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--band-neutral);
+    outline-offset: 1px;
+  }
+  button {
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+  button.secondary { background: #fff; color: var(--ink); border-color: var(--hairline); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  #status { font-size: 13px; color: var(--ink-soft); margin-top: 10px; min-height: 1.2em; }
+  #status.error { color: var(--pulse-red); }
+  #status.ok { color: var(--calm-green); }
+  .auth-state { font-size: 13px; color: var(--calm-green); align-self: center; }
+
+  section.chart-block { margin-top: 26px; }
+  section.chart-block h2 {
+    font-size: 15px; font-weight: 600; margin: 0 0 2px;
+  }
+  section.chart-block .hint { font-size: 13px; color: var(--ink-soft); margin: 0 0 8px; }
+  .chart-frame {
+    border: 1px solid var(--hairline);
+    background: var(--field);
+    border-radius: var(--radius);
+    padding: 6px;
+  }
+  canvas { display: block; width: 100%; height: 260px; }
+  #summaryChart { cursor: crosshair; touch-action: none; }
+  #detailChart { cursor: crosshair; }
+  .legend { display: flex; gap: 18px; font-size: 12px; color: var(--ink-soft); margin-top: 6px; flex-wrap: wrap; }
+  .legend .swatch {
+    display: inline-block; width: 14px; height: 9px; border-radius: 2px;
+    margin-right: 5px; vertical-align: baseline;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .ekg polyline { stroke-dasharray: 900; stroke-dashoffset: 900; animation: trace 1.6s ease-out forwards; }
+    @keyframes trace { to { stroke-dashoffset: 0; } }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Heart Rate Explorer</h1>
+    <p class="sub">Sampled beats per minute from your Fitbit, via the Google Health API.</p>
+    <svg class="ekg" viewBox="0 0 1000 26" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points="0,13 120,13 140,13 150,4 160,22 170,13 320,13 340,13 350,3 361,23 372,13 540,13 560,13 570,5 580,21 590,13 780,13 800,13 810,4 821,22 832,13 1000,13"/>
+    </svg>
+  </header>
+
+  <fieldset class="panel">
+    <legend>Access</legend>
+    <div class="row">
+      <div class="ctl" style="flex:1; min-width:320px;">
+        <label for="clientId">OAuth client ID (see README)</label>
+        <input type="text" id="clientId" placeholder="1234567890-abc.apps.googleusercontent.com" autocomplete="off">
+      </div>
+      <button id="grantBtn">Grant access</button>
+      <span class="auth-state" id="authState" hidden>Access granted</span>
+      <div class="ctl" id="emailCtl">
+        <label for="emailInput">Email for CSV filename (optional)</label>
+        <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email" spellcheck="false">
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="panel">
+    <legend>Time range (your civil time)</legend>
+    <div class="row">
+      <div class="ctl">
+        <label for="tz">Time zone</label>
+        <select id="tz"></select>
+      </div>
+      <div class="ctl">
+        <label for="startLocal">Start</label>
+        <input type="datetime-local" id="startLocal" step="60">
+      </div>
+      <div class="ctl">
+        <label for="endLocal">End</label>
+        <input type="datetime-local" id="endLocal" step="60">
+      </div>
+      <button id="fetchBtn" disabled>Fetch heart rate</button>
+      <button id="csvBtn" class="secondary" disabled>Download CSV</button>
+    </div>
+    <div id="status" role="status"></div>
+  </fieldset>
+
+  <section class="chart-block">
+    <h2>Summary — 10th to 90th percentile per 5 minutes</h2>
+    <p class="hint">The shaded block marks the span shown in the detail view. Drag it to pan, drag its edges to widen or narrow the window, or click anywhere to jump there.</p>
+    <div class="chart-frame"><canvas id="summaryChart"></canvas></div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--pulse-red)"></span>band above 100 bpm (stress)</span>
+      <span><span class="swatch" style="background:var(--calm-green)"></span>band below 90 bpm</span>
+      <span><span class="swatch" style="background:var(--band-neutral)"></span>mixed</span>
+    </div>
+  </section>
+
+  <section class="chart-block">
+    <h2 id="detailTitle">Detail — pick a spot on the summary chart</h2>
+    <p class="hint">Every raw sample in the selected window. Hover to read the exact bpm and time.</p>
+    <div class="chart-frame"><canvas id="detailChart"></canvas></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+/* ===================================================================
+ * HOSTING: paste your OAuth client ID between the quotes below and it
+ * will be used automatically — no need to type it in every visit. Leave
+ * it "" to fall back to the text field. It is safe to commit this value
+ * to a public repo: the client ID is public, and your Authorized
+ * JavaScript origins allowlist is what actually restricts its use.
+ * =================================================================== */
+const CLIENT_ID = "1051353496232-fq8caftedl4klv32ekgkod0nnkcas1vf.apps.googleusercontent.com";
+
+/* ============================== State ============================== */
+const API_BASE = "https://health.googleapis.com/v4/users/me/dataTypes/heart-rate/dataPoints";
+const SCOPE = "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly";
+const PAGE_SIZE = 10000; // API maximum — keep pagination as large as possible.
+const FIVE_MIN = 5 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DETAIL_HALF = HOUR;            // default window: 2 hours (center ± 1h)
+const MIN_WINDOW = 10 * 60 * 1000;   // narrowest the window can be dragged
+
+let accessToken = null;
+let tokenClient = null;
+// Each sample: { device, civil: {y,m,d,hh,mm,ss}, civilMs, bpm }
+// civilMs treats the civil wall-clock reading as if it were UTC, which gives a
+// monotonic axis in the user's own time and makes date-boundary math trivial.
+let samples = [];
+let summaryBuckets = null; // cached 5-min aggregation; recomputed per fetch
+let detailStartMs = null;  // detail window is [detailStartMs, detailEndMs]
+let detailEndMs = null;    // resizable by dragging the indicator edges
+
+const $ = (id) => document.getElementById(id);
+
+(function applyHardcodedClientId() {
+  if (!CLIENT_ID) return;
+  const field = $("clientId");
+  field.value = CLIENT_ID;
+  // Hardcoded — collapse the input so the panel is just a Grant button.
+  field.closest(".ctl").hidden = true;
+})();
+
+/* ============================ Time zones =========================== */
+(function populateTimeZones() {
+  const sel = $("tz");
+  const zones = (typeof Intl.supportedValuesOf === "function")
+    ? Intl.supportedValuesOf("timeZone")
+    : ["UTC", "America/Los_Angeles", "America/New_York", "Europe/London", "Asia/Tokyo"];
+  const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  for (const z of zones) {
+    const opt = document.createElement("option");
+    opt.value = z;
+    opt.textContent = z;
+    if (z === local) opt.selected = true;
+    sel.appendChild(opt);
+  }
+})();
+
+(function defaultRange() {
+  // Default: the last 24 hours, in the browser's civil time.
+  const pad = (n) => String(n).padStart(2, "0");
+  const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - 24 * HOUR);
+  $("endLocal").value = fmt(now);
+  $("startLocal").value = fmt(dayAgo);
+})();
+
+// Offset (ms) of a zone relative to UTC at a given UTC instant: local - UTC.
+function tzOffsetMs(utcMs, tz) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  });
+  const p = {};
+  for (const part of dtf.formatToParts(new Date(utcMs))) p[part.type] = part.value;
+  const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second);
+  return asUtc - utcMs;
+}
+
+// Convert a civil wall-clock reading in a named zone to an absolute UTC instant.
+// Iterates because the offset itself depends on the instant (DST edges).
+function civilToUtcMs(y, mo, d, hh, mm, tz) {
+  const naive = Date.UTC(y, mo - 1, d, hh, mm, 0);
+  let guess = naive;
+  for (let i = 0; i < 3; i++) {
+    guess = naive - tzOffsetMs(guess, tz);
+  }
+  return guess;
+}
+
+function localInputToUtcIso(inputId, tz) {
+  const v = $(inputId).value;
+  if (!v) return null;
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const utcMs = civilToUtcMs(+m[1], +m[2], +m[3], +m[4], +m[5], tz);
+  return new Date(utcMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/* ============================== OAuth ============================== */
+$("grantBtn").addEventListener("click", () => {
+  const clientId = CLIENT_ID || $("clientId").value.trim();
+  if (!clientId) return setStatus("Enter your OAuth client ID first.", "error");
+  if (!window.google || !google.accounts || !google.accounts.oauth2) {
+    return setStatus("Google Identity Services has not loaded yet — check your network and retry.", "error");
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: SCOPE,
+    // The Health API rejects tokens carrying any scope it doesn't allow
+    // (403 DISALLOWED_OAUTH_SCOPES). Incremental authorization would union
+    // every scope ever granted to this client into the token, so disable it.
+    include_granted_scopes: false,
+    callback: async (resp) => {
+      if (resp.error) return setStatus(`Authorization failed: ${resp.error}`, "error");
+      accessToken = resp.access_token;
+      $("authState").hidden = false;
+      $("fetchBtn").disabled = false;
+      // Show exactly which scopes the token carries — if anything besides the
+      // googlehealth scope appears here, the Health API will reject the token.
+      try {
+        const ti = await fetch("https://oauth2.googleapis.com/tokeninfo?access_token=" + encodeURIComponent(accessToken));
+        const info = await ti.json();
+        setStatus(`Access granted. Token scopes: ${info.scope || "(unknown)"}`, "ok");
+      } catch {
+        setStatus("Access granted. Choose a range and fetch.", "ok");
+      }
+    }
+  });
+  // prompt:"consent" forces a fresh grant of exactly the requested scope,
+  // instead of silently reusing a previous (possibly broader) grant.
+  tokenClient.requestAccessToken({ prompt: "consent" });
+});
+
+/* ==================== Proto3 zero-omission parsing ================== */
+// The API serializes protocol buffers to JSON and omits fields whose value is
+// zero: a civil time of 07:00:00 arrives as {"hours":7}, and midnight can
+// arrive with no "time" object at all. Every read below defaults to 0.
+function parseCivil(ct) {
+  const date = ct.date || {};
+  const time = ct.time || {};
+  return {
+    y: date.year || 0, m: date.month || 0, d: date.day || 0,
+    hh: time.hours || 0, mm: time.minutes || 0, ss: time.seconds || 0
+  };
+}
+
+// "-25200s" -> -25200000 ms; an omitted offset means zero (UTC).
+function parseUtcOffsetMs(s) {
+  if (!s) return 0;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n * 1000 : 0;
+}
+
+function civilFromPhysical(physicalIso, utcOffsetStr) {
+  const shifted = new Date(Date.parse(physicalIso) + parseUtcOffsetMs(utcOffsetStr));
+  return {
+    y: shifted.getUTCFullYear(), m: shifted.getUTCMonth() + 1, d: shifted.getUTCDate(),
+    hh: shifted.getUTCHours(), mm: shifted.getUTCMinutes(), ss: shifted.getUTCSeconds()
+  };
+}
+
+function deviceName(dataSource) {
+  if (!dataSource) return "Unknown device";
+  const dev = dataSource.device || {};
+  const parts = [dev.manufacturer, dev.model || dev.name || dev.deviceVersion].filter(Boolean);
+  if (parts.length) return parts.join(" ");
+  if (dataSource.application && dataSource.application.name) return dataSource.application.name;
+  return "Unknown device";
+}
+
+function parseDataPoint(dp) {
+  const hr = dp.heartRate;
+  if (!hr) return null;
+  const st = hr.sampleTime || {};
+  const civil = st.civilTime
+    ? parseCivil(st.civilTime)
+    : (st.physicalTime ? civilFromPhysical(st.physicalTime, st.utcOffset) : null);
+  if (!civil) return null;
+  // int64 comes over the wire as a string; omitted means zero.
+  const bpm = Number(hr.beatsPerMinute || 0);
+  return {
+    device: deviceName(dp.dataSource),
+    civil,
+    civilMs: Date.UTC(civil.y, civil.m - 1, civil.d, civil.hh, civil.mm, civil.ss),
+    bpm
+  };
+}
+
+/* ============================== Fetch ============================== */
+$("fetchBtn").addEventListener("click", async () => {
+  if (!accessToken) return setStatus("Grant access first.", "error");
+  const tz = $("tz").value;
+  const startIso = localInputToUtcIso("startLocal", tz);
+  const endIso = localInputToUtcIso("endLocal", tz);
+  if (!startIso || !endIso) return setStatus("Set both start and end times.", "error");
+  if (startIso >= endIso) return setStatus("Start must be before end.", "error");
+
+  // Data type casing differs by context: kebab-case in the URL path
+  // (heart-rate) but snake_case in the filter parameter (heart_rate).
+  const filter = `heart_rate.sample_time.physical_time >= "${startIso}" AND ` +
+                 `heart_rate.sample_time.physical_time < "${endIso}"`;
+
+  $("fetchBtn").disabled = true;
+  samples = [];
+  summaryBuckets = null;
+  let pageToken = "";
+  let pages = 0;
+  try {
+    do {
+      const url = new URL(API_BASE);
+      url.searchParams.set("pageSize", String(PAGE_SIZE));
+      url.searchParams.set("filter", filter);
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      setStatus(`Fetching page ${pages + 1}… (${samples.length.toLocaleString()} samples so far)`);
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (resp.status === 401) throw new Error("Token expired — click Grant access again.");
+      if (!resp.ok) throw new Error(`API error ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+      const body = await resp.json();
+      for (const dp of body.dataPoints || []) {
+        const s = parseDataPoint(dp);
+        if (s) samples.push(s);
+      }
+      pageToken = body.nextPageToken || "";
+      pages++;
+    } while (pageToken);
+
+    samples.sort((a, b) => a.civilMs - b.civilMs);
+    $("csvBtn").disabled = samples.length === 0;
+    if (samples.length === 0) {
+      setStatus("No heart rate samples in that range.", "error");
+    } else {
+      setStatus(`Loaded ${samples.length.toLocaleString()} samples in ${pages} page${pages > 1 ? "s" : ""}.`, "ok");
+      const mid = samples[Math.floor(samples.length / 2)].civilMs;
+      detailStartMs = mid - DETAIL_HALF;
+      detailEndMs = mid + DETAIL_HALF;
+      drawSummary();
+      drawDetail();
+    }
+  } catch (err) {
+    setStatus(String(err.message || err), "error");
+  } finally {
+    $("fetchBtn").disabled = false;
+  }
+});
+
+/* =============================== CSV =============================== */
+function csvField(v) {
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+$("csvBtn").addEventListener("click", () => {
+  const pad = (n) => String(n).padStart(2, "0");
+  const lines = ["device_name,civil_time,beats_per_minute"];
+  for (const s of samples) {
+    const c = s.civil;
+    const t = `${c.y}-${pad(c.m)}-${pad(c.d)} ${pad(c.hh)}:${pad(c.mm)}:${pad(c.ss)}`;
+    lines.push([csvField(s.device), t, s.bpm].join(","));
+  }
+  const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  // Optional email from the text box, folded into a filename-safe suffix.
+  // e.g. david.eger@gmail.com -> heart_rate_david.eger_gmail.com.csv
+  const typedEmail = $("emailInput").value.trim();
+  const safeEmail = typedEmail
+    ? "_" + typedEmail.toLowerCase().replace(/[^a-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "")
+    : "";
+  a.download = `heart_rate${safeEmail}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+/* ============================ Chart core =========================== */
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function setupCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w: rect.width, h: rect.height };
+}
+
+function niceYBounds(values) {
+  if (!values.length) return [40, 120];
+  let lo = Math.min(...values), hi = Math.max(...values);
+  lo = Math.max(0, Math.floor((lo - 5) / 10) * 10);
+  hi = Math.ceil((hi + 5) / 10) * 10;
+  if (hi - lo < 20) hi = lo + 20;
+  return [lo, hi];
+}
+
+const PLOT = { left: 44, right: 10, top: 22, bottom: 26 };
+
+function makeScales(w, h, t0, t1, yLo, yHi) {
+  const px = { x0: PLOT.left, x1: w - PLOT.right, y0: h - PLOT.bottom, y1: PLOT.top };
+  return {
+    x: (t) => px.x0 + (t - t0) / (t1 - t0) * (px.x1 - px.x0),
+    y: (v) => px.y0 - (v - yLo) / (yHi - yLo) * (px.y0 - px.y1),
+    invX: (xpx) => t0 + (xpx - px.x0) / (px.x1 - px.x0) * (t1 - t0),
+    px
+  };
+}
+
+// Subtle alternating background per civil date, one label per visible date,
+// and a hairline at each midnight. Keeps x-tick labels free for times only.
+function drawDateBands(ctx, sc, t0, t1) {
+  const dayStart = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
+  const labelFmt = (t) => {
+    const d = new Date(t);
+    return d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+  };
+  let cursor = dayStart(t0);
+  while (cursor < t1) {
+    const next = cursor + 24 * HOUR;
+    const a = Math.max(cursor, t0), b = Math.min(next, t1);
+    const dayIndex = Math.floor(cursor / (24 * HOUR));
+    if (dayIndex % 2 === 1) {
+      ctx.fillStyle = "rgba(28, 36, 49, 0.045)";
+      ctx.fillRect(sc.x(a), sc.px.y1, sc.x(b) - sc.x(a), sc.px.y0 - sc.px.y1);
+    }
+    if (cursor >= t0) { // midnight boundary line
+      ctx.strokeStyle = "rgba(28, 36, 49, 0.15)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sc.x(cursor), sc.px.y1);
+      ctx.lineTo(sc.x(cursor), sc.px.y0);
+      ctx.stroke();
+    }
+    ctx.fillStyle = css("--ink-soft");
+    ctx.font = "600 10px " + css("--sans");
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(labelFmt(cursor), (sc.x(a) + sc.x(b)) / 2, sc.px.y1 - 8);
+    cursor = next;
+  }
+}
+
+function drawYAxis(ctx, sc, yLo, yHi) {
+  ctx.font = "11px " + css("--mono");
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const step = (yHi - yLo) > 60 ? 20 : 10;
+  for (let v = yLo; v <= yHi; v += step) {
+    const y = sc.y(v);
+    ctx.strokeStyle = "rgba(28, 36, 49, 0.07)";
+    ctx.beginPath(); ctx.moveTo(sc.px.x0, y); ctx.lineTo(sc.px.x1, y); ctx.stroke();
+    ctx.fillStyle = css("--ink-soft");
+    ctx.fillText(String(v), sc.px.x0 - 6, y);
+  }
+}
+
+function drawThresholds(ctx, sc, yLo, yHi) {
+  ctx.setLineDash([4, 4]);
+  ctx.lineWidth = 1;
+  for (const [v, color] of [[100, css("--pulse-red")], [90, css("--calm-green")]]) {
+    if (v <= yLo || v >= yHi) continue;
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(sc.px.x0, sc.y(v)); ctx.lineTo(sc.px.x1, sc.y(v)); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.setLineDash([]);
+}
+
+function drawTimeTicks(ctx, sc, t0, t1) {
+  const span = t1 - t0;
+  const steps = [5, 10, 15, 30, 60, 120, 180, 360, 720].map((m) => m * 60 * 1000);
+  let step = steps[steps.length - 1];
+  for (const s of steps) { if (span / s <= 10) { step = s; break; } }
+  ctx.font = "11px " + css("--mono");
+  ctx.fillStyle = css("--ink-soft");
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const pad = (n) => String(n).padStart(2, "0");
+  for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) {
+    const d = new Date(t);
+    ctx.fillText(`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`, sc.x(t), sc.px.y0 + 6);
+    ctx.strokeStyle = "rgba(28, 36, 49, 0.12)";
+    ctx.beginPath(); ctx.moveTo(sc.x(t), sc.px.y0); ctx.lineTo(sc.x(t), sc.px.y0 + 3); ctx.stroke();
+  }
+}
+
+/* =========================== Summary chart ========================= */
+function percentile(sorted, q) {
+  if (sorted.length === 1) return sorted[0];
+  const pos = q * (sorted.length - 1);
+  const lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+// Pre-aggregating into 5-minute p10/p90 buckets keeps the summary cheap to
+// draw no matter how many raw ~3-second samples were fetched.
+function bucketize() {
+  const map = new Map();
+  for (const s of samples) {
+    const key = Math.floor(s.civilMs / FIVE_MIN) * FIVE_MIN;
+    let arr = map.get(key);
+    if (!arr) { arr = []; map.set(key, arr); }
+    arr.push(s.bpm);
+  }
+  const buckets = [];
+  for (const [t, arr] of [...map.entries()].sort((a, b) => a[0] - b[0])) {
+    arr.sort((a, b) => a - b);
+    buckets.push({ t: t + FIVE_MIN / 2, p10: percentile(arr, 0.1), p90: percentile(arr, 0.9) });
+  }
+  return buckets;
+}
+
+function bucketColor(b) {
+  if (b.p10 > 100) return css("--pulse-red");    // whole band above 100: stress
+  if (b.p90 < 90) return css("--calm-green");    // whole band below 90: calm
+  return css("--band-neutral");
+}
+
+function drawSummary() {
+  const canvas = $("summaryChart");
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  if (!samples.length) return;
+
+  const buckets = summaryBuckets || (summaryBuckets = bucketize());
+  const t0 = samples[0].civilMs, t1 = samples[samples.length - 1].civilMs;
+  const [yLo, yHi] = niceYBounds(buckets.flatMap((b) => [b.p10, b.p90]));
+  const sc = makeScales(w, h, t0, Math.max(t1, t0 + FIVE_MIN), yLo, yHi);
+  canvas._scales = sc;
+
+  drawDateBands(ctx, sc, t0, t1);
+  drawYAxis(ctx, sc, yLo, yHi);
+  drawThresholds(ctx, sc, yLo, yHi);
+  drawTimeTicks(ctx, sc, t0, t1);
+
+  // Band: one quad per adjacent bucket pair, colored by the left bucket, so a
+  // stressed region reads red even mid-gradient. Gaps (missing buckets) break
+  // the band rather than bridging hours the watch wasn't worn.
+  for (let i = 0; i < buckets.length; i++) {
+    const a = buckets[i];
+    const b = buckets[i + 1];
+    const color = bucketColor(a);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.55;
+    if (b && b.t - a.t <= 2 * FIVE_MIN) {
+      ctx.beginPath();
+      ctx.moveTo(sc.x(a.t), sc.y(a.p90));
+      ctx.lineTo(sc.x(b.t), sc.y(b.p90));
+      ctx.lineTo(sc.x(b.t), sc.y(b.p10));
+      ctx.lineTo(sc.x(a.t), sc.y(a.p10));
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // isolated bucket: draw a thin bar so it stays visible
+      const half = Math.max(1.5, (sc.x(a.t + FIVE_MIN) - sc.x(a.t)) / 2);
+      ctx.fillRect(sc.x(a.t) - half, sc.y(a.p90), half * 2, Math.max(1, sc.y(a.p10) - sc.y(a.p90)));
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Regional indicator: mark the span currently shown in the detail chart.
+  if (detailStartMs != null) {
+    const a = Math.max(t0, detailStartMs);
+    const b = Math.min(t1, detailEndMs);
+    if (b > a) {
+      const xa = sc.x(a), xb = sc.x(b);
+      ctx.fillStyle = "rgba(28, 36, 49, 0.08)";
+      ctx.fillRect(xa, sc.px.y1, xb - xa, sc.px.y0 - sc.px.y1);
+      ctx.strokeStyle = css("--ink");
+      ctx.globalAlpha = 0.65;
+      ctx.lineWidth = 1.5;
+      for (const x of [xa, xb]) {
+        ctx.beginPath();
+        ctx.moveTo(x, sc.px.y1);
+        ctx.lineTo(x, sc.px.y0);
+        ctx.stroke();
+      }
+      // small grab-handle notches at the vertical midpoint of each edge
+      const midY = (sc.px.y0 + sc.px.y1) / 2;
+      ctx.fillStyle = css("--ink");
+      for (const x of [xa, xb]) {
+        if (ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(x - 2.5, midY - 8, 5, 16, 2.5);
+          ctx.fill();
+        } else {
+          ctx.fillRect(x - 2.5, midY - 8, 5, 16);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// Drag interaction on the summary indicator:
+//  - drag inside the shaded block  -> pan the whole window
+//  - drag either edge              -> move only that edge (resize)
+//  - click/drag outside the block  -> recenter the window there, then pan
+(function enableIndicatorDrag() {
+  const canvas = $("summaryChart");
+  const EDGE_TOL = 8; // px within which a press grabs an edge
+  let drag = null;    // { mode, grabT, startA, startB, moved }
+  let raf = 0;
+
+  const dataExtent = () => [samples[0].civilMs, samples[samples.length - 1].civilMs];
+
+  function hitTest(xpx) {
+    const sc = canvas._scales;
+    const xa = sc.x(detailStartMs), xb = sc.x(detailEndMs);
+    if (Math.abs(xpx - xa) <= EDGE_TOL) return "left";
+    if (Math.abs(xpx - xb) <= EDGE_TOL) return "right";
+    if (xpx > xa && xpx < xb) return "move";
+    return "outside";
+  }
+
+  function scheduleRedraw() {
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; drawSummary(); drawDetail(); });
+  }
+
+  canvas.addEventListener("pointerdown", (ev) => {
+    if (!canvas._scales || !samples.length || detailStartMs == null) return;
+    const rect = canvas.getBoundingClientRect();
+    const xpx = ev.clientX - rect.left;
+    const t = canvas._scales.invX(xpx);
+    let mode = hitTest(xpx);
+    if (mode === "outside") {
+      // Recenter the current-width window on the press point, then pan.
+      const [lo, hi] = dataExtent();
+      const w = detailEndMs - detailStartMs;
+      const a = Math.min(Math.max(t - w / 2, lo), Math.max(lo, hi - w));
+      detailStartMs = a;
+      detailEndMs = a + w;
+      mode = "move";
+      scheduleRedraw();
+    }
+    drag = { mode, grabT: t, startA: detailStartMs, startB: detailEndMs, moved: false };
+    canvas.style.cursor = mode === "move" ? "grabbing" : "ew-resize";
+    canvas.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+
+  canvas.addEventListener("pointermove", (ev) => {
+    if (!canvas._scales || detailStartMs == null || !samples.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const xpx = ev.clientX - rect.left;
+    if (!drag) { // hover: show what a press would grab
+      const m = hitTest(xpx);
+      canvas.style.cursor = m === "move" ? "grab" : (m === "outside" ? "crosshair" : "ew-resize");
+      return;
+    }
+    const dt = canvas._scales.invX(xpx) - drag.grabT;
+    if (dt !== 0) drag.moved = true;
+    const [lo, hi] = dataExtent();
+    if (drag.mode === "move") {
+      const w = drag.startB - drag.startA;
+      const a = Math.min(Math.max(drag.startA + dt, lo), Math.max(lo, hi - w));
+      detailStartMs = a;
+      detailEndMs = a + w;
+    } else if (drag.mode === "left") {
+      detailStartMs = Math.min(Math.max(drag.startA + dt, lo), drag.startB - MIN_WINDOW);
+    } else { // right
+      detailEndMs = Math.max(Math.min(drag.startB + dt, hi), drag.startA + MIN_WINDOW);
+    }
+    scheduleRedraw();
+  });
+
+  function endDrag() {
+    if (!drag) return;
+    const wasTap = !drag.moved;
+    drag = null;
+    canvas.style.cursor = "crosshair";
+    if (wasTap) $("detailChart").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", () => { drag = null; canvas.style.cursor = "crosshair"; });
+})();
+
+/* =========================== Detail chart ========================== */
+function drawDetail() {
+  const canvas = $("detailChart");
+  const { ctx, w, h } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  if (detailStartMs == null || !samples.length) return;
+
+  const t0 = detailStartMs;
+  const t1 = detailEndMs;
+  const visible = samples.filter((s) => s.civilMs >= t0 && s.civilMs <= t1);
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const f = (t) => { const d = new Date(t); return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
+  const day = new Date((t0 + t1) / 2).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+  $("detailTitle").textContent = `Detail — ${day}, ${f(t0)}–${f(t1)} (${visible.length.toLocaleString()} samples)`;
+
+  const [yLo, yHi] = niceYBounds(visible.map((s) => s.bpm));
+  const sc = makeScales(w, h, t0, t1, yLo, yHi);
+
+  drawDateBands(ctx, sc, t0, t1);
+  drawYAxis(ctx, sc, yLo, yHi);
+  drawThresholds(ctx, sc, yLo, yHi);
+  drawTimeTicks(ctx, sc, t0, t1);
+
+  if (!visible.length) {
+    ctx.fillStyle = css("--ink-soft");
+    ctx.font = "13px " + css("--sans");
+    ctx.textAlign = "center";
+    ctx.fillText("No samples in this window", w / 2, h / 2);
+    return;
+  }
+
+  // Polyline broken at gaps larger than a minute (watch off wrist).
+  ctx.strokeStyle = css("--ink");
+  ctx.lineWidth = 1.25;
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < visible.length; i++) {
+    const s = visible[i];
+    const gap = i > 0 && (s.civilMs - visible[i - 1].civilMs) > 60 * 1000;
+    if (!started || gap) { ctx.moveTo(sc.x(s.civilMs), sc.y(s.bpm)); started = true; }
+    else ctx.lineTo(sc.x(s.civilMs), sc.y(s.bpm));
+  }
+  ctx.stroke();
+
+  if (visible.length <= 600) {
+    for (const s of visible) {
+      ctx.fillStyle = s.bpm > 100 ? css("--pulse-red") : (s.bpm < 90 ? css("--calm-green") : css("--band-neutral"));
+      ctx.beginPath();
+      ctx.arc(sc.x(s.civilMs), sc.y(s.bpm), 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Cache what the hover overlay needs so it can redraw without re-filtering:
+  // the base pixels (device resolution), the visible samples, scales, and the
+  // CSS-pixel plot bounds.
+  canvas._detail = {
+    visible, sc, w, h,
+    base: ctx.getImageData(0, 0, canvas.width, canvas.height)
+  };
+}
+
+/* ===================== Detail hover crosshair ===================== */
+(function enableDetailHover() {
+  const canvas = $("detailChart");
+
+  function nearest(visible, tMs) {
+    // binary search for the closest sample by civil time
+    let lo = 0, hi = visible.length - 1;
+    if (hi < 0) return null;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (visible[mid].civilMs < tMs) lo = mid + 1; else hi = mid;
+    }
+    const a = visible[lo], b = visible[lo - 1];
+    if (b && Math.abs(b.civilMs - tMs) < Math.abs(a.civilMs - tMs)) return b;
+    return a;
+  }
+
+  canvas.addEventListener("pointermove", (ev) => {
+    const d = canvas._detail;
+    if (!d || !d.visible.length) return;
+    const { ctx } = setupCtxOnly(canvas);
+    ctx.putImageData(d.base, 0, 0);
+
+    const rect = canvas.getBoundingClientRect();
+    const xpx = ev.clientX - rect.left;
+    if (xpx < d.sc.px.x0 || xpx > d.sc.px.x1) return; // outside plot area
+
+    const s = nearest(d.visible, d.sc.invX(xpx));
+    if (!s) return;
+    const gx = d.sc.x(s.civilMs), gy = d.sc.y(s.bpm);
+
+    // vertical indicator line at the sample's x
+    ctx.save();
+    ctx.strokeStyle = "rgba(28, 36, 49, 0.45)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(gx, d.sc.px.y1);
+    ctx.lineTo(gx, d.sc.px.y0);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // marker dot on the trace
+    ctx.fillStyle = s.bpm > 100 ? css("--pulse-red") : (s.bpm < 90 ? css("--calm-green") : css("--ink"));
+    ctx.beginPath();
+    ctx.arc(gx, gy, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // tooltip: "72 bpm" over "14:23:45"
+    const c = s.civil;
+    const pad = (n) => String(n).padStart(2, "0");
+    const line1 = `${s.bpm} bpm`;
+    const line2 = `${pad(c.hh)}:${pad(c.mm)}:${pad(c.ss)}`;
+    ctx.font = "600 12px " + css("--mono");
+    const tw = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width);
+    const boxW = tw + 16, boxH = 34, off = 10;
+    let bx = gx + off;
+    if (bx + boxW > d.sc.px.x1) bx = gx - off - boxW; // flip left near right edge
+    let by = d.sc.px.y1 + 4;
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.strokeStyle = "rgba(28, 36, 49, 0.25)";
+    ctx.lineWidth = 1;
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 5); ctx.fill(); ctx.stroke(); }
+    else { ctx.fillRect(bx, by, boxW, boxH); ctx.strokeRect(bx, by, boxW, boxH); }
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = s.bpm > 100 ? css("--pulse-red") : (s.bpm < 90 ? css("--calm-green") : css("--ink"));
+    ctx.fillText(line1, bx + 8, by + 15);
+    ctx.fillStyle = css("--ink-soft");
+    ctx.font = "12px " + css("--mono");
+    ctx.fillText(line2, bx + 8, by + 29);
+    ctx.restore();
+  });
+
+  canvas.addEventListener("pointerleave", () => {
+    const d = canvas._detail;
+    if (d) { const { ctx } = setupCtxOnly(canvas); ctx.putImageData(d.base, 0, 0); }
+  });
+})();
+
+// Get a context already scaled to CSS pixels, WITHOUT clearing/resizing (so a
+// cached base image survives). setupCanvas would reset width and wipe pixels.
+function setupCtxOnly(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx };
+}
+
+/* ============================== Misc =============================== */
+function setStatus(msg, kind) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = kind || "";
+}
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { drawSummary(); drawDetail(); }, 120);
+});
+</script>
+</body>
+</html>
