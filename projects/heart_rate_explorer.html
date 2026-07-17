@@ -207,6 +207,7 @@ let tokenClient = null;
 // monotonic axis in the user's own time and makes date-boundary math trivial.
 let samples = [];
 let summaryBuckets = null; // cached 5-min aggregation; recomputed per fetch
+let fetching = false;      // true while pages are arriving; blocks all drawing
 let detailStartMs = null;  // detail window is [detailStartMs, detailEndMs]
 let detailEndMs = null;    // resizable by dragging the indicator edges
 
@@ -360,10 +361,14 @@ function parseDataPoint(dp) {
   if (!civil) return null;
   // int64 comes over the wire as a string; omitted means zero.
   const bpm = Number(hr.beatsPerMinute || 0);
+  const civilMs = Date.UTC(civil.y, civil.m - 1, civil.d, civil.hh, civil.mm, civil.ss);
+  // A single NaN would scramble the sort (NaN comparisons are unordered) and
+  // silently break path rendering, so reject malformed points outright.
+  if (!Number.isFinite(civilMs) || !Number.isFinite(bpm)) return null;
   return {
     device: deviceName(dp.dataSource),
     civil,
-    civilMs: Date.UTC(civil.y, civil.m - 1, civil.d, civil.hh, civil.mm, civil.ss),
+    civilMs,
     bpm
   };
 }
@@ -383,6 +388,7 @@ $("fetchBtn").addEventListener("click", async () => {
                  `heart_rate.sample_time.physical_time < "${endIso}"`;
 
   $("fetchBtn").disabled = true;
+  fetching = true; // no chart may draw (or cache buckets) from partial pages
   samples = [];
   summaryBuckets = null;
   let pageToken = "";
@@ -415,12 +421,29 @@ $("fetchBtn").addEventListener("click", async () => {
       const mid = samples[Math.floor(samples.length / 2)].civilMs;
       detailStartMs = mid - DETAIL_HALF;
       detailEndMs = mid + DETAIL_HALF;
-      scheduleCharts();
     }
   } catch (err) {
-    setStatus(String(err.message || err), "error");
+    // Keep whatever arrived usable and consistent (sorted) so later redraws
+    // can't operate on a jumbled partial array.
+    samples.sort((a, b) => a.civilMs - b.civilMs);
+    $("csvBtn").disabled = samples.length === 0;
+    if (samples.length && detailStartMs == null) {
+      const mid = samples[Math.floor(samples.length / 2)].civilMs;
+      detailStartMs = mid - DETAIL_HALF;
+      detailEndMs = mid + DETAIL_HALF;
+    }
+    const note = samples.length
+      ? ` Showing the ${samples.length.toLocaleString()} samples fetched before the error.`
+      : "";
+    setStatus(String(err.message || err) + note, "error");
   } finally {
+    // Order matters: buckets may only be computed after fetching is false and
+    // samples are final, so clear the cache and lift the draw block together,
+    // then schedule one clean draw.
+    summaryBuckets = null;
+    fetching = false;
     $("fetchBtn").disabled = false;
+    scheduleCharts();
   }
 });
 
@@ -607,6 +630,7 @@ function bucketColor(b) {
 }
 
 function drawSummary() {
+  if (fetching) return; // never draw (or cache buckets) from partial pages
   const canvas = $("summaryChart");
   const { ctx, w, h, renderable } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
@@ -768,6 +792,7 @@ function drawSummary() {
 
 /* =========================== Detail chart ========================== */
 function drawDetail() {
+  if (fetching) return; // partial pages are unsorted; wait for completion
   const canvas = $("detailChart");
   const { ctx, w, h, renderable } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
