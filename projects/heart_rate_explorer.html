@@ -15,6 +15,7 @@
     --pulse-red: #c62f2f;
     --calm-green: #2f8f5b;
     --band-neutral: #5b7a9d;
+  --activity: #4a76a8;
     --accent: #c62f2f;
     --radius: 6px;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -108,6 +109,33 @@
     display: inline-block; width: 14px; height: 9px; border-radius: 2px;
     margin-right: 5px; vertical-align: baseline;
   }
+  #dailyTable table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--field);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: 14px;
+  }
+  #dailyTable th, #dailyTable td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--hairline);
+    text-align: left;
+  }
+  #dailyTable th {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+  #dailyTable td.num, #dailyTable th.num { text-align: right; font-family: var(--mono); }
+  #dailyTable th.num { font-family: var(--sans); }
+  #dailyTable td.stress { color: var(--pulse-red); }
+  #dailyTable tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--hairline); }
+  #dailyTable tbody tr:last-child td { border-bottom: none; }
+
   @media (prefers-reduced-motion: no-preference) {
     .ekg polyline { stroke-dasharray: 900; stroke-dashoffset: 900; animation: trace 1.6s ease-out forwards; }
     @keyframes trace { to { stroke-dashoffset: 0; } }
@@ -166,9 +194,14 @@
     <p class="hint">The shaded block marks the span shown in the detail view. Drag it to pan, drag its edges to widen or narrow the window, or click anywhere to jump there.</p>
     <div class="chart-frame"><canvas id="summaryChart"></canvas></div>
     <div class="legend">
-      <span><span class="swatch" style="background:var(--pulse-red)"></span>band above 100 bpm (stress)</span>
+      <span><span class="swatch" style="background:var(--pulse-red)"></span>band above 100 bpm</span>
       <span><span class="swatch" style="background:var(--calm-green)"></span>band below 90 bpm</span>
       <span><span class="swatch" style="background:var(--band-neutral)"></span>mixed</span>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--activity);opacity:.35"></span>moving (50+ steps/min)</span>
+      <span><span class="swatch" style="background:var(--activity)"></span>elevated — exercise</span>
+      <span><span class="swatch" style="background:var(--pulse-red)"></span>elevated — stress</span>
     </div>
   </section>
 
@@ -176,6 +209,23 @@
     <h2 id="detailTitle">Detail — pick a spot on the summary chart</h2>
     <p class="hint">Every raw sample in the selected window. Hover to read the exact bpm and time.</p>
     <div class="chart-frame"><canvas id="detailChart"></canvas></div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--activity);opacity:.28"></span>steps per minute</span>
+      <span><span class="swatch" style="background:rgba(74,118,168,.35)"></span>exercise-explained elevation</span>
+      <span><span class="swatch" style="background:rgba(198,47,47,.28)"></span>unexplained (stress)</span>
+    </div>
+  </section>
+
+  <section class="chart-block">
+    <h2>Daily summary</h2>
+    <p class="hint">
+      <strong>Active</strong> is time spent moving at 50+ steps/min.
+      <strong>Elevated (exercise)</strong> is time above 100 bpm explained by that
+      movement, including a 15-minute recovery tail.
+      <strong>Elevated (stress)</strong> is time above 100 bpm with no movement to
+      explain it.
+    </p>
+    <div id="dailyTable"></div>
   </section>
 </div>
 
@@ -192,13 +242,44 @@
 const CLIENT_ID = "1051353496232-fq8caftedl4klv32ekgkod0nnkcas1vf.apps.googleusercontent.com";
 
 /* ============================== State ============================== */
-const API_BASE = "https://health.googleapis.com/v4/users/me/dataTypes/heart-rate/dataPoints";
-const SCOPE = "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly";
+// Data type casing differs by context: kebab-case in the endpoint path
+// (heart-rate) but snake_case in the filter parameter (heart_rate).
+const API_ROOT = "https://health.googleapis.com/v4/users/me/dataTypes";
+const apiUrl = (kebabType) => `${API_ROOT}/${kebabType}/dataPoints`;
+
+// heart-rate lives under health_metrics_and_measurements; steps lives under
+// activity_and_fitness. Both are googlehealth scopes, so they can share one
+// token — what the Health API rejects is a token mixing in scopes from
+// OUTSIDE the googlehealth family (e.g. legacy fitness.*).
+const SCOPES = [
+  "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
+  "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly"
+].join(" ");
+
 const PAGE_SIZE = 10000; // API maximum — keep pagination as large as possible.
+const MINUTE = 60 * 1000;
 const FIVE_MIN = 5 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 const DETAIL_HALF = HOUR;            // default window: 2 hours (center ± 1h)
 const MIN_WINDOW = 10 * 60 * 1000;   // narrowest the window can be dragged
+
+/* ================= Exercise / stress classification ================
+ * Tunables. The scheme, in short:
+ *   1. A minute is ACTIVE when cadence >= ACTIVE_CADENCE steps/min.
+ *   2. Runs of active minutes (small gaps bridged) that last at least
+ *      MIN_BOUT form an exercise BOUT.
+ *   3. A minute is ELEVATED when its median bpm > ELEVATED_BPM.
+ *   4. Runs of elevated minutes form ELEVATED SEGMENTS, which are then
+ *      attributed to exercise or stress — see classifyTimeline().
+ * =================================================================== */
+const ACTIVE_CADENCE = 50;           // steps/min that counts as walking+
+const BOUT_BRIDGE = 2 * MINUTE;      // ignore short lulls inside a bout
+const MIN_BOUT = 3 * MINUTE;         // ignore incidental pottering about
+const LEAD_IN = 2 * MINUTE;          // HR rises just before movement registers
+const RECOVERY = 15 * MINUTE;        // HR stays up after exertion ends
+const ELEVATED_BPM = 100;            // the stress threshold from the charts
+const ELEVATED_BRIDGE = 2 * MINUTE;  // bridge brief dips below threshold
+const MIN_ELEVATED = 2 * MINUTE;     // ignore single-minute blips
 
 let accessToken = null;
 let tokenClient = null;
@@ -206,6 +287,12 @@ let tokenClient = null;
 // civilMs treats the civil wall-clock reading as if it were UTC, which gives a
 // monotonic axis in the user's own time and makes date-boundary math trivial.
 let samples = [];
+// Each step interval: { startMs, endMs, count } in civil ms.
+let stepIntervals = [];
+let cadence = null;        // Map: minute-start civil ms -> steps in that minute
+let bouts = [];            // [{ start, end }] exercise bouts, civil ms
+let episodes = [];         // [{ start, end, kind: "exercise"|"stress" }]
+let dailyStats = [];       // [{ dayMs, exerciseMs, stressMs, steps, ... }]
 let summaryBuckets = null; // cached 5-min aggregation; recomputed per fetch
 let fetching = false;      // true while pages are arriving; blocks all drawing
 let detailStartMs = null;  // detail window is [detailStartMs, detailEndMs]
@@ -288,7 +375,7 @@ $("grantBtn").addEventListener("click", () => {
   }
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: clientId,
-    scope: SCOPE,
+    scope: SCOPES,
     // The Health API rejects tokens carrying any scope it doesn't allow
     // (403 DISALLOWED_OAUTH_SCOPES). Incremental authorization would union
     // every scope ever granted to this client into the token, so disable it.
@@ -373,7 +460,63 @@ function parseDataPoint(dp) {
   };
 }
 
+// Steps are an Interval type: each point covers [start, end) with a count.
+// Same proto3 zero-omission rules apply — a civil time of 16:00 arrives as
+// {"hours":16} with no "minutes", and midnight may omit "time" entirely.
+function parseStepPoint(dp) {
+  const st = dp.steps;
+  if (!st) return null;
+  const iv = st.interval || {};
+  const startCivil = iv.civilStartTime
+    ? parseCivil(iv.civilStartTime)
+    : (iv.startTime ? civilFromPhysical(iv.startTime, iv.startUtcOffset) : null);
+  const endCivil = iv.civilEndTime
+    ? parseCivil(iv.civilEndTime)
+    : (iv.endTime ? civilFromPhysical(iv.endTime, iv.endUtcOffset) : null);
+  if (!startCivil) return null;
+  const startMs = Date.UTC(startCivil.y, startCivil.m - 1, startCivil.d,
+                           startCivil.hh, startCivil.mm, startCivil.ss);
+  // A missing end is treated as a one-minute bucket, which is what the
+  // intraday steps stream actually emits.
+  const endMs = endCivil
+    ? Date.UTC(endCivil.y, endCivil.m - 1, endCivil.d, endCivil.hh, endCivil.mm, endCivil.ss)
+    : startMs + MINUTE;
+  const count = Number(st.count || 0); // int64 as string; omitted means zero
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !Number.isFinite(count)) return null;
+  if (endMs <= startMs) return null;
+  return { startMs, endMs, count };
+}
+
 /* ============================== Fetch ============================== */
+// Pages through one data type, pushing each parsed point into `sink`.
+// Returns the number of pages consumed.
+async function fetchAllPages({ type, filter, parse, sink, label }) {
+  let pageToken = "";
+  let pages = 0;
+  do {
+    const url = new URL(apiUrl(type));
+    url.searchParams.set("pageSize", String(PAGE_SIZE));
+    url.searchParams.set("filter", filter);
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    setStatus(`Fetching ${label} page ${pages + 1}… (${sink.length.toLocaleString()} so far)`);
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (resp.status === 401) throw new Error("Token expired — click Grant access again.");
+    if (!resp.ok) {
+      const err = new Error(`API error ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+      err.status = resp.status;
+      throw err;
+    }
+    const body = await resp.json();
+    for (const dp of body.dataPoints || []) {
+      const p = parse(dp);
+      if (p) sink.push(p);
+    }
+    pageToken = body.nextPageToken || "";
+    pages++;
+  } while (pageToken);
+  return pages;
+}
+
 $("fetchBtn").addEventListener("click", async () => {
   if (!accessToken) return setStatus("Grant access first.", "error");
   const tz = $("tz").value;
@@ -381,43 +524,54 @@ $("fetchBtn").addEventListener("click", async () => {
   const endIso = localInputToUtcIso("endLocal", tz);
   if (!startIso || !endIso) return setStatus("Set both start and end times.", "error");
   if (startIso >= endIso) return setStatus("Start must be before end.", "error");
-
-  // Data type casing differs by context: kebab-case in the URL path
-  // (heart-rate) but snake_case in the filter parameter (heart_rate).
-  const filter = `heart_rate.sample_time.physical_time >= "${startIso}" AND ` +
-                 `heart_rate.sample_time.physical_time < "${endIso}"`;
+  // The API caps heart-rate queries at 14 days.
+  if (Date.parse(endIso) - Date.parse(startIso) > 14 * 24 * HOUR) {
+    return setStatus("Range too long — the API caps heart rate queries at 14 days.", "error");
+  }
 
   $("fetchBtn").disabled = true;
   fetching = true; // no chart may draw (or cache buckets) from partial pages
   samples = [];
+  stepIntervals = [];
   summaryBuckets = null;
-  let pageToken = "";
-  let pages = 0;
+  let stepsNote = "";
   try {
-    do {
-      const url = new URL(API_BASE);
-      url.searchParams.set("pageSize", String(PAGE_SIZE));
-      url.searchParams.set("filter", filter);
-      if (pageToken) url.searchParams.set("pageToken", pageToken);
-      setStatus(`Fetching page ${pages + 1}… (${samples.length.toLocaleString()} samples so far)`);
-      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (resp.status === 401) throw new Error("Token expired — click Grant access again.");
-      if (!resp.ok) throw new Error(`API error ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
-      const body = await resp.json();
-      for (const dp of body.dataPoints || []) {
-        const s = parseDataPoint(dp);
-        if (s) samples.push(s);
-      }
-      pageToken = body.nextPageToken || "";
-      pages++;
-    } while (pageToken);
+    const hrPages = await fetchAllPages({
+      type: "heart-rate",
+      filter: `heart_rate.sample_time.physical_time >= "${startIso}" AND ` +
+              `heart_rate.sample_time.physical_time < "${endIso}"`,
+      parse: parseDataPoint,
+      sink: samples,
+      label: "heart rate"
+    });
+
+    // Steps are secondary: if this call fails (e.g. the activity scope wasn't
+    // granted), keep the heart rate data and just lose the classification.
+    try {
+      await fetchAllPages({
+        type: "steps",
+        filter: `steps.interval.start_time >= "${startIso}" AND ` +
+                `steps.interval.start_time < "${endIso}"`,
+        parse: parseStepPoint,
+        sink: stepIntervals,
+        label: "steps"
+      });
+    } catch (stepErr) {
+      stepIntervals = [];
+      stepsNote = stepErr.status === 403
+        ? " Steps unavailable — re-grant access to add the activity scope."
+        : ` Steps unavailable (${String(stepErr.message || stepErr).slice(0, 80)}).`;
+    }
 
     samples.sort((a, b) => a.civilMs - b.civilMs);
     $("csvBtn").disabled = samples.length === 0;
     if (samples.length === 0) {
-      setStatus("No heart rate samples in that range.", "error");
+      setStatus("No heart rate samples in that range." + stepsNote, "error");
     } else {
-      setStatus(`Loaded ${samples.length.toLocaleString()} samples in ${pages} page${pages > 1 ? "s" : ""}.`, "ok");
+      setStatus(`Loaded ${samples.length.toLocaleString()} heart rate samples in ` +
+                `${hrPages} page${hrPages > 1 ? "s" : ""}, ` +
+                `${stepIntervals.length.toLocaleString()} step intervals.` + stepsNote,
+                stepsNote ? "" : "ok");
       const mid = samples[Math.floor(samples.length / 2)].civilMs;
       detailStartMs = mid - DETAIL_HALF;
       detailEndMs = mid + DETAIL_HALF;
@@ -437,6 +591,9 @@ $("fetchBtn").addEventListener("click", async () => {
       : "";
     setStatus(String(err.message || err) + note, "error");
   } finally {
+    // Derive activity + classification from the final, complete datasets.
+    stepIntervals.sort((a, b) => a.startMs - b.startMs);
+    classifyTimeline();
     // Order matters: buckets may only be computed after fetching is false and
     // samples are final, so clear the cache and lift the draw block together,
     // then schedule one clean draw.
@@ -447,6 +604,190 @@ $("fetchBtn").addEventListener("click", async () => {
   }
 });
 
+/* ==================== Exercise / stress classification ==============
+ * Turns raw steps + heart rate into labelled episodes.
+ *
+ *   cadence   per-minute steps, spread across the minutes each interval covers
+ *   bouts     runs of minutes at >= ACTIVE_CADENCE (gaps bridged, shorts dropped)
+ *   elevated  runs of minutes whose MEDIAN bpm exceeds ELEVATED_BPM
+ *
+ * Each elevated run is then attributed. A run is "exercise" for the part of
+ * it that falls inside a bout's influence window (the bout itself, LEAD_IN
+ * before it, RECOVERY after it — because heart rate lags exertion in both
+ * directions). Any part outside every influence window is "stress": the heart
+ * rate went up without the body moving. One run can therefore split into a
+ * stress lead-in, an exercise middle, and a stress tail — which is exactly the
+ * case of someone who is still elevated long after a workout has ended.
+ * =================================================================== */
+
+// Merge sorted spans, joining any separated by <= bridge.
+function mergeSpans(spans, bridge) {
+  const out = [];
+  for (const s of spans) {
+    const last = out[out.length - 1];
+    if (last && s.start - last.end <= bridge) last.end = Math.max(last.end, s.end);
+    else out.push({ start: s.start, end: s.end });
+  }
+  return out;
+}
+
+// Total overlap of a set of spans with [a, b).
+function overlapMs(spans, a, b) {
+  let total = 0;
+  for (const s of spans) {
+    const ov = Math.min(s.end, b) - Math.max(s.start, a);
+    if (ov > 0) total += ov;
+  }
+  return total;
+}
+
+function buildCadence() {
+  const m = new Map();
+  for (const iv of stepIntervals) {
+    const dur = iv.endMs - iv.startMs;
+    // A very long interval is a rollup, not an intraday bucket; it can't
+    // describe a cadence and would spin this loop, so skip it.
+    if (dur > 6 * HOUR) continue;
+    let t = Math.floor(iv.startMs / MINUTE) * MINUTE;
+    while (t < iv.endMs) {
+      const ov = Math.min(iv.endMs, t + MINUTE) - Math.max(iv.startMs, t);
+      if (ov > 0) m.set(t, (m.get(t) || 0) + iv.count * (ov / dur));
+      t += MINUTE;
+    }
+  }
+  return m;
+}
+
+function buildBouts(cad) {
+  const active = [];
+  for (const [t, c] of cad) if (c >= ACTIVE_CADENCE) active.push({ start: t, end: t + MINUTE });
+  active.sort((a, b) => a.start - b.start);
+  return mergeSpans(active, BOUT_BRIDGE).filter((b) => b.end - b.start >= MIN_BOUT);
+}
+
+// Per-minute median bpm is robust to the odd spurious spike that a mean or a
+// raw sample would let through.
+function buildElevatedSpans() {
+  const byMin = new Map();
+  for (const s of samples) {
+    const k = Math.floor(s.civilMs / MINUTE) * MINUTE;
+    let arr = byMin.get(k);
+    if (!arr) { arr = []; byMin.set(k, arr); }
+    arr.push(s.bpm);
+  }
+  const spans = [];
+  for (const [t, arr] of [...byMin.entries()].sort((a, b) => a[0] - b[0])) {
+    arr.sort((a, b) => a - b);
+    const median = arr[Math.floor(arr.length / 2)];
+    if (median > ELEVATED_BPM) spans.push({ start: t, end: t + MINUTE });
+  }
+  return mergeSpans(spans, ELEVATED_BRIDGE).filter((s) => s.end - s.start >= MIN_ELEVATED);
+}
+
+function classifyTimeline() {
+  cadence = buildCadence();
+  bouts = samples.length ? buildBouts(cadence) : [];
+  episodes = [];
+
+  if (samples.length) {
+    for (const seg of buildElevatedSpans()) {
+      // Bouts whose influence window touches this elevated run.
+      const rel = bouts.filter((b) => (b.start - LEAD_IN) < seg.end && (b.end + RECOVERY) > seg.start);
+      if (!rel.length) {
+        episodes.push({ start: seg.start, end: seg.end, kind: "stress" });
+        continue;
+      }
+      let infStart = Infinity, infEnd = -Infinity;
+      for (const b of rel) {
+        infStart = Math.min(infStart, b.start - LEAD_IN);
+        infEnd = Math.max(infEnd, b.end + RECOVERY);
+      }
+      const exStart = Math.max(seg.start, infStart);
+      const exEnd = Math.min(seg.end, infEnd);
+      if (exStart > seg.start) episodes.push({ start: seg.start, end: exStart, kind: "stress" });
+      if (exEnd > exStart) episodes.push({ start: exStart, end: exEnd, kind: "exercise" });
+      if (seg.end > exEnd) episodes.push({ start: exEnd, end: seg.end, kind: "stress" });
+    }
+    episodes.sort((a, b) => a.start - b.start);
+    // Collapse touching same-kind episodes created by the split above.
+    const merged = [];
+    for (const e of episodes) {
+      const last = merged[merged.length - 1];
+      if (last && last.kind === e.kind && e.start - last.end <= 0) last.end = Math.max(last.end, e.end);
+      else merged.push({ ...e });
+    }
+    episodes = merged;
+  }
+
+  buildDailyStats();
+  renderDailyTable();
+}
+
+function buildDailyStats() {
+  dailyStats = [];
+  if (!samples.length) return;
+  const DAY = 24 * HOUR;
+  const stressEps = episodes.filter((e) => e.kind === "stress");
+  const exerciseEps = episodes.filter((e) => e.kind === "exercise");
+  const first = Math.floor(samples[0].civilMs / DAY) * DAY;
+  const last = Math.floor(samples[samples.length - 1].civilMs / DAY) * DAY;
+  for (let d = first; d <= last; d += DAY) {
+    const d1 = d + DAY;
+    let steps = 0;
+    for (const iv of stepIntervals) {
+      const dur = iv.endMs - iv.startMs;
+      const ov = Math.min(iv.endMs, d1) - Math.max(iv.startMs, d);
+      if (ov > 0 && dur > 0) steps += iv.count * (ov / dur);
+    }
+    dailyStats.push({
+      dayMs: d,
+      activeMs: overlapMs(bouts, d, d1),
+      stressMs: overlapMs(stressEps, d, d1),
+      exerciseElevatedMs: overlapMs(exerciseEps, d, d1),
+      steps: Math.round(steps)
+    });
+  }
+}
+
+function fmtDuration(ms) {
+  const mins = Math.round(ms / MINUTE);
+  if (mins <= 0) return "—";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function renderDailyTable() {
+  const host = $("dailyTable");
+  if (!dailyStats.length) { host.innerHTML = ""; return; }
+  const dayLabel = (t) => new Date(t).toLocaleDateString("en-US",
+    { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+  const rows = dailyStats.map((d) => `<tr>
+      <td>${dayLabel(d.dayMs)}</td>
+      <td class="num">${d.steps.toLocaleString()}</td>
+      <td class="num">${fmtDuration(d.activeMs)}</td>
+      <td class="num">${fmtDuration(d.exerciseElevatedMs)}</td>
+      <td class="num stress">${fmtDuration(d.stressMs)}</td>
+    </tr>`).join("");
+  const tot = dailyStats.reduce((a, d) => ({
+    steps: a.steps + d.steps, activeMs: a.activeMs + d.activeMs,
+    exerciseElevatedMs: a.exerciseElevatedMs + d.exerciseElevatedMs,
+    stressMs: a.stressMs + d.stressMs
+  }), { steps: 0, activeMs: 0, exerciseElevatedMs: 0, stressMs: 0 });
+  host.innerHTML = `<table>
+    <thead><tr>
+      <th>Day</th><th class="num">Steps</th><th class="num">Active</th>
+      <th class="num">Elevated&nbsp;(exercise)</th><th class="num">Elevated&nbsp;(stress)</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr>
+      <td>Total</td><td class="num">${tot.steps.toLocaleString()}</td>
+      <td class="num">${fmtDuration(tot.activeMs)}</td>
+      <td class="num">${fmtDuration(tot.exerciseElevatedMs)}</td>
+      <td class="num stress">${fmtDuration(tot.stressMs)}</td>
+    </tr></tfoot>
+  </table>`;
+}
+
 /* =============================== CSV =============================== */
 function csvField(v) {
   const s = String(v);
@@ -455,11 +796,22 @@ function csvField(v) {
 
 $("csvBtn").addEventListener("click", () => {
   const pad = (n) => String(n).padStart(2, "0");
-  const lines = ["device_name,civil_time,beats_per_minute"];
+  const lines = ["device_name,civil_time,beats_per_minute,steps_per_min,state"];
+  // Both samples and episodes are sorted, so walk them together with a moving
+  // pointer instead of rescanning the episode list for every sample.
+  let ei = 0;
   for (const s of samples) {
     const c = s.civil;
     const t = `${c.y}-${pad(c.m)}-${pad(c.d)} ${pad(c.hh)}:${pad(c.mm)}:${pad(c.ss)}`;
-    lines.push([csvField(s.device), t, s.bpm].join(","));
+    const cad = cadence ? cadence.get(Math.floor(s.civilMs / MINUTE) * MINUTE) : undefined;
+    while (ei < episodes.length && episodes[ei].end <= s.civilMs) ei++;
+    const ep = episodes[ei];
+    const state = ep && s.civilMs >= ep.start && s.civilMs < ep.end ? ep.kind : "";
+    lines.push([
+      csvField(s.device), t, s.bpm,
+      cad === undefined ? "" : Math.round(cad),
+      state
+    ].join(","));
   }
   const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
   const a = document.createElement("a");
@@ -506,7 +858,10 @@ function niceYBounds(values) {
   return [lo, hi];
 }
 
-const PLOT = { left: 44, right: 10, top: 22, bottom: 26 };
+// bottom leaves room for the episode lane (just under the plot) and then the
+// time tick labels below it.
+const LANE_TOP = 5, LANE_H = 11;
+const PLOT = { left: 44, right: 10, top: 22, bottom: 42 };
 
 function makeScales(w, h, t0, t1, yLo, yHi) {
   const px = { x0: PLOT.left, x1: w - PLOT.right, y0: h - PLOT.bottom, y1: PLOT.top };
@@ -591,10 +946,81 @@ function drawTimeTicks(ctx, sc, t0, t1) {
   const pad = (n) => String(n).padStart(2, "0");
   for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) {
     const d = new Date(t);
-    ctx.fillText(`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`, sc.x(t), sc.px.y0 + 6);
+    ctx.fillText(`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
+                 sc.x(t), sc.px.y0 + LANE_TOP + LANE_H + 4);
     ctx.strokeStyle = "rgba(28, 36, 49, 0.12)";
     ctx.beginPath(); ctx.moveTo(sc.x(t), sc.px.y0); ctx.lineTo(sc.x(t), sc.px.y0 + 3); ctx.stroke();
   }
+}
+
+/* ==================== Activity / episode rendering ================= */
+// A thin lane under the plot: movement (bouts) as a muted underlay, with the
+// classified elevated episodes drawn on top in blue (exercise) or red
+// (stress). Reading it left to right gives "when did the body move" and
+// "when was the heart rate up, and why".
+function drawEpisodeLane(ctx, sc, t0, t1) {
+  const y = sc.px.y0 + LANE_TOP;
+  const clipRect = (a, b) => {
+    const xa = Math.max(sc.px.x0, sc.x(Math.max(a, t0)));
+    const xb = Math.min(sc.px.x1, sc.x(Math.min(b, t1)));
+    return xb > xa ? [xa, xb - xa] : null;
+  };
+
+  ctx.fillStyle = "rgba(28, 36, 49, 0.05)";
+  ctx.fillRect(sc.px.x0, y, sc.px.x1 - sc.px.x0, LANE_H);
+
+  for (const b of bouts) {
+    const r = clipRect(b.start, b.end);
+    if (!r) continue;
+    ctx.fillStyle = css("--activity");
+    ctx.globalAlpha = 0.35;
+    ctx.fillRect(r[0], y, Math.max(1, r[1]), LANE_H);
+    ctx.globalAlpha = 1;
+  }
+  for (const e of episodes) {
+    const r = clipRect(e.start, e.end);
+    if (!r) continue;
+    ctx.fillStyle = e.kind === "stress" ? css("--pulse-red") : css("--activity");
+    ctx.fillRect(r[0], y + 2, Math.max(1, r[1]), LANE_H - 4);
+  }
+}
+
+// Full-height wash behind the detail plot so an episode is unmissable.
+function drawEpisodeTints(ctx, sc, t0, t1) {
+  for (const e of episodes) {
+    const xa = Math.max(sc.px.x0, sc.x(Math.max(e.start, t0)));
+    const xb = Math.min(sc.px.x1, sc.x(Math.min(e.end, t1)));
+    if (xb <= xa) continue;
+    ctx.fillStyle = e.kind === "stress" ? "rgba(198, 47, 47, 0.09)" : "rgba(74, 118, 168, 0.10)";
+    ctx.fillRect(xa, sc.px.y1, xb - xa, sc.px.y0 - sc.px.y1);
+  }
+}
+
+// Steps-per-minute as faint bars along the bottom of the detail plot, on
+// their own scale, so cadence can be compared against the heart rate trace.
+function drawCadence(ctx, sc, t0, t1) {
+  if (!cadence || !cadence.size) return;
+  const bandTop = sc.px.y0 - (sc.px.y0 - sc.px.y1) * 0.22;
+  let peak = ACTIVE_CADENCE * 2;
+  for (const [t, c] of cadence) if (t >= t0 && t < t1 && c > peak) peak = c;
+  ctx.fillStyle = css("--activity");
+  ctx.globalAlpha = 0.28;
+  for (const [t, c] of cadence) {
+    if (t < t0 - MINUTE || t > t1 || c <= 0) continue;
+    const xa = sc.x(Math.max(t, t0));
+    const xb = sc.x(Math.min(t + MINUTE, t1));
+    const hgt = (c / peak) * (sc.px.y0 - bandTop);
+    if (xb > xa) ctx.fillRect(xa, sc.px.y0 - hgt, Math.max(1, xb - xa), hgt);
+  }
+  ctx.globalAlpha = 1;
+  // cadence threshold marker
+  const yThresh = sc.px.y0 - (ACTIVE_CADENCE / peak) * (sc.px.y0 - bandTop);
+  ctx.strokeStyle = css("--activity");
+  ctx.globalAlpha = 0.5;
+  ctx.setLineDash([2, 3]);
+  ctx.beginPath(); ctx.moveTo(sc.px.x0, yThresh); ctx.lineTo(sc.px.x1, yThresh); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
 }
 
 /* =========================== Summary chart ========================= */
@@ -646,6 +1072,7 @@ function drawSummary() {
   drawYAxis(ctx, sc, yLo, yHi);
   drawThresholds(ctx, sc, yLo, yHi);
   drawTimeTicks(ctx, sc, t0, t1);
+  drawEpisodeLane(ctx, sc, t0, t1);
 
   // Band: one quad per adjacent bucket pair, colored by the left bucket, so a
   // stressed region reads red even mid-gradient. Gaps (missing buckets) break
@@ -811,9 +1238,12 @@ function drawDetail() {
   const sc = makeScales(w, h, t0, t1, yLo, yHi);
 
   drawDateBands(ctx, sc, t0, t1);
+  drawEpisodeTints(ctx, sc, t0, t1);
   drawYAxis(ctx, sc, yLo, yHi);
   drawThresholds(ctx, sc, yLo, yHi);
   drawTimeTicks(ctx, sc, t0, t1);
+  drawCadence(ctx, sc, t0, t1);
+  drawEpisodeLane(ctx, sc, t0, t1);
 
   if (!visible.length) {
     ctx.fillStyle = css("--ink-soft");
@@ -910,9 +1340,16 @@ function drawDetail() {
     const pad = (n) => String(n).padStart(2, "0");
     const line1 = `${s.bpm} bpm`;
     const line2 = `${pad(c.hh)}:${pad(c.mm)}:${pad(c.ss)}`;
+    const cad = cadence ? cadence.get(Math.floor(s.civilMs / MINUTE) * MINUTE) : undefined;
+    const ep = episodes.find((e) => s.civilMs >= e.start && s.civilMs < e.end);
+    const line3 = [
+      cad !== undefined ? `${Math.round(cad)} steps/min` : null,
+      ep ? ep.kind : null
+    ].filter(Boolean).join(" · ");
     ctx.font = "600 12px " + css("--mono");
-    const tw = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width);
-    const boxW = tw + 16, boxH = 34, off = 10;
+    const tw = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width,
+                        line3 ? ctx.measureText(line3).width : 0);
+    const boxW = tw + 16, boxH = line3 ? 48 : 34, off = 10;
     let bx = gx + off;
     if (bx + boxW > d.sc.px.x1) bx = gx - off - boxW; // flip left near right edge
     let by = d.sc.px.y1 + 4;
@@ -930,6 +1367,10 @@ function drawDetail() {
     ctx.fillStyle = css("--ink-soft");
     ctx.font = "12px " + css("--mono");
     ctx.fillText(line2, bx + 8, by + 29);
+    if (line3) {
+      ctx.fillStyle = ep && ep.kind === "stress" ? css("--pulse-red") : css("--activity");
+      ctx.fillText(line3, bx + 8, by + 43);
+    }
     ctx.restore();
   });
 
