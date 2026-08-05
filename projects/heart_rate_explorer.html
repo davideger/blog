@@ -16,6 +16,7 @@
     --calm-green: #2f8f5b;
     --band-neutral: #5b7a9d;
   --activity: #4a76a8;
+    --event: #6f5b9e;
     --accent: #c62f2f;
     --radius: 6px;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -109,7 +110,7 @@
     display: inline-block; width: 14px; height: 9px; border-radius: 2px;
     margin-right: 5px; vertical-align: baseline;
   }
-  #dailyTable table {
+  .data-table table {
     width: 100%;
     border-collapse: collapse;
     background: var(--field);
@@ -118,23 +119,43 @@
     overflow: hidden;
     font-size: 14px;
   }
-  #dailyTable th, #dailyTable td {
+  .data-table th, .data-table td {
     padding: 7px 12px;
     border-bottom: 1px solid var(--hairline);
     text-align: left;
+    vertical-align: top;
   }
-  #dailyTable th {
+  .data-table th {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--ink-soft);
     font-weight: 600;
   }
-  #dailyTable td.num, #dailyTable th.num { text-align: right; font-family: var(--mono); }
-  #dailyTable th.num { font-family: var(--sans); }
-  #dailyTable td.stress { color: var(--pulse-red); }
-  #dailyTable tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--hairline); }
-  #dailyTable tbody tr:last-child td { border-bottom: none; }
+  .data-table td.num, .data-table th.num { text-align: right; font-family: var(--mono); }
+  .data-table th.num { font-family: var(--sans); }
+  .data-table td.stress { color: var(--pulse-red); }
+  .data-table td.when { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  .data-table td.cause { color: var(--ink-soft); }
+  .data-table td.cause .ev { color: var(--event); }
+  .data-table td.cause .ev-when { color: var(--ink-soft); font-family: var(--mono); font-size: 12px; }
+  .data-table tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--hairline); }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+  .data-table .empty { color: var(--ink-soft); font-size: 13px; margin: 0; }
+  .kind {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+  }
+  .kind.stress { color: var(--pulse-red); }
+  .kind.exercise { color: var(--activity); }
+  .allday-note { font-size: 13px; color: var(--ink-soft); margin: 0 0 8px; }
+  .allday-note .ev { color: var(--event); }
 
   @media (prefers-reduced-motion: no-preference) {
     .ekg polyline { stroke-dasharray: 900; stroke-dashoffset: 900; animation: trace 1.6s ease-out forwards; }
@@ -161,6 +182,8 @@
       </div>
       <button id="grantBtn">Grant access</button>
       <span class="auth-state" id="authState" hidden>Access granted</span>
+      <button id="calBtn" class="secondary">Connect calendar</button>
+      <span class="auth-state" id="calState" hidden>Calendar connected</span>
       <div class="ctl" id="emailCtl">
         <label for="emailInput">Email for CSV filename (optional)</label>
         <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email" spellcheck="false">
@@ -202,6 +225,8 @@
       <span><span class="swatch" style="background:var(--activity);opacity:.35"></span>moving (50+ steps/min)</span>
       <span><span class="swatch" style="background:var(--activity)"></span>elevated — exercise</span>
       <span><span class="swatch" style="background:var(--pulse-red)"></span>elevated — stress</span>
+      <span><span class="swatch" style="background:var(--event)"></span>calendar event</span>
+      <span><span class="swatch" style="background:var(--event);opacity:.25"></span>all-day event</span>
     </div>
   </section>
 
@@ -213,7 +238,28 @@
       <span><span class="swatch" style="background:var(--activity);opacity:.28"></span>steps per minute</span>
       <span><span class="swatch" style="background:rgba(74,118,168,.35)"></span>exercise-explained elevation</span>
       <span><span class="swatch" style="background:rgba(198,47,47,.28)"></span>unexplained (stress)</span>
+      <span><span class="swatch" style="background:var(--event)"></span>calendar event</span>
     </div>
+  </section>
+
+  <section class="chart-block">
+    <h2 id="eventsTitle">On the calendar</h2>
+    <p class="hint">
+      Events from your primary calendar that overlap the detail window, with what
+      your heart was doing while each one ran.
+    </p>
+    <div id="allDayNote"></div>
+    <div id="eventList" class="data-table"></div>
+  </section>
+
+  <section class="chart-block">
+    <h2>Elevated episodes &amp; possible causes</h2>
+    <p class="hint">
+      Every run of elevated heart rate in the fetched range, paired with the
+      calendar events that overlap it. Overlap is a coincidence in time, not a
+      proven cause — read it as a prompt for your own memory.
+    </p>
+    <div id="episodeTable" class="data-table"></div>
   </section>
 
   <section class="chart-block">
@@ -225,7 +271,7 @@
       <strong>Elevated (stress)</strong> is time above 100 bpm with no movement to
       explain it.
     </p>
-    <div id="dailyTable"></div>
+    <div id="dailyTable" class="data-table"></div>
   </section>
 </div>
 
@@ -256,6 +302,14 @@ const SCOPES = [
   "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly"
 ].join(" ");
 
+// Calendar gets its OWN token, deliberately. The Health API rejects any token
+// carrying a scope from outside the googlehealth family (403
+// DISALLOWED_OAUTH_SCOPES), so the calendar scope can never ride along with the
+// health scopes — it has to be minted by a second, independent token request.
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
+const CALENDAR_API = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const CAL_PAGE_SIZE = 2500; // API maximum for events.list
+
 const PAGE_SIZE = 10000; // API maximum — keep pagination as large as possible.
 const MINUTE = 60 * 1000;
 const FIVE_MIN = 5 * 60 * 1000;
@@ -282,7 +336,7 @@ const ELEVATED_BRIDGE = 2 * MINUTE;  // bridge brief dips below threshold
 const MIN_ELEVATED = 2 * MINUTE;     // ignore single-minute blips
 
 let accessToken = null;
-let tokenClient = null;
+let calendarToken = null;
 // Each sample: { device, civil: {y,m,d,hh,mm,ss}, civilMs, bpm }
 // civilMs treats the civil wall-clock reading as if it were UTC, which gives a
 // monotonic axis in the user's own time and makes date-boundary math trivial.
@@ -297,6 +351,10 @@ let summaryBuckets = null; // cached 5-min aggregation; recomputed per fetch
 let fetching = false;      // true while pages are arriving; blocks all drawing
 let detailStartMs = null;  // detail window is [detailStartMs, detailEndMs]
 let detailEndMs = null;    // resizable by dragging the indicator edges
+// Each calendar event: { startMs, endMs, allDay, summary, location } in civil ms.
+let calEvents = [];
+let lastRange = null;      // { startIso, endIso, tz } of the most recent fetch
+let dataVersion = 0;       // bumped whenever samples/events change wholesale
 
 const $ = (id) => document.getElementById(id);
 
@@ -367,39 +425,91 @@ function localInputToUtcIso(inputId, tz) {
 }
 
 /* ============================== OAuth ============================== */
-$("grantBtn").addEventListener("click", () => {
-  const clientId = CLIENT_ID || $("clientId").value.trim();
-  if (!clientId) return setStatus("Enter your OAuth client ID first.", "error");
-  if (!window.google || !google.accounts || !google.accounts.oauth2) {
-    return setStatus("Google Identity Services has not loaded yet — check your network and retry.", "error");
-  }
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: SCOPES,
-    // The Health API rejects tokens carrying any scope it doesn't allow
-    // (403 DISALLOWED_OAUTH_SCOPES). Incremental authorization would union
-    // every scope ever granted to this client into the token, so disable it.
-    include_granted_scopes: false,
-    callback: async (resp) => {
-      if (resp.error) return setStatus(`Authorization failed: ${resp.error}`, "error");
-      accessToken = resp.access_token;
-      $("authState").hidden = false;
-      $("fetchBtn").disabled = false;
-      // Show exactly which scopes the token carries — if anything besides the
-      // googlehealth scope appears here, the Health API will reject the token.
-      try {
-        const ti = await fetch("https://oauth2.googleapis.com/tokeninfo?access_token=" + encodeURIComponent(accessToken));
-        const info = await ti.json();
-        setStatus(`Access granted. Token scopes: ${info.scope || "(unknown)"}`, "ok");
-      } catch {
-        setStatus("Access granted. Choose a range and fetch.", "ok");
-      }
+// One token request for one scope set. Each call mints an INDEPENDENT token:
+// health scopes and the calendar scope must never share one, because the
+// Health API rejects a token that carries anything outside its own family.
+function requestScopedToken(scope) {
+  return new Promise((resolve, reject) => {
+    const clientId = CLIENT_ID || $("clientId").value.trim();
+    if (!clientId) return reject(new Error("Enter your OAuth client ID first."));
+    if (!window.google || !google.accounts || !google.accounts.oauth2) {
+      return reject(new Error("Google Identity Services has not loaded yet — check your network and retry."));
     }
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope,
+      // Incremental authorization would union every scope ever granted to this
+      // client into the token — which is exactly how a health token ends up
+      // contaminated with the calendar scope. Keep each grant self-contained.
+      include_granted_scopes: false,
+      callback: (resp) => {
+        if (resp.error) reject(new Error(`Authorization failed: ${resp.error}`));
+        else resolve(resp.access_token);
+      },
+      error_callback: (err) => reject(new Error(
+        `Authorization failed: ${(err && (err.message || err.type)) || "popup closed"}`))
+    });
+    // prompt:"consent" forces a fresh grant of exactly the requested scope,
+    // instead of silently reusing a previous (possibly broader) grant.
+    client.requestAccessToken({ prompt: "consent" });
   });
-  // prompt:"consent" forces a fresh grant of exactly the requested scope,
-  // instead of silently reusing a previous (possibly broader) grant.
-  tokenClient.requestAccessToken({ prompt: "consent" });
+}
+
+// The scope list a token actually carries, for display. Best-effort only.
+async function tokenScopes(token) {
+  try {
+    const ti = await fetch("https://oauth2.googleapis.com/tokeninfo?access_token=" + encodeURIComponent(token));
+    const info = await ti.json();
+    return info.scope || "";
+  } catch {
+    return "";
+  }
+}
+
+$("grantBtn").addEventListener("click", async () => {
+  try {
+    accessToken = await requestScopedToken(SCOPES);
+  } catch (err) {
+    return setStatus(String(err.message || err), "error");
+  }
+  $("authState").hidden = false;
+  $("fetchBtn").disabled = false;
+  // Show exactly which scopes the token carries — if anything besides the
+  // googlehealth scopes appears here, the Health API will reject the token.
+  const scopes = await tokenScopes(accessToken);
+  setStatus(scopes ? `Access granted. Token scopes: ${scopes}`
+                   : "Access granted. Choose a range and fetch.", "ok");
 });
+
+$("calBtn").addEventListener("click", async () => {
+  const btn = $("calBtn");
+  btn.disabled = true;
+  try {
+    calendarToken = await requestScopedToken(CALENDAR_SCOPE);
+    $("calState").hidden = false;
+    setStatus("Calendar connected.", "ok");
+    // Already looking at a range? Fill in its events straight away rather than
+    // making the user re-run the whole heart rate fetch.
+    if (lastRange) await loadCalendarForLastRange();
+  } catch (err) {
+    setStatus(String(err.message || err), "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function loadCalendarForLastRange() {
+  try {
+    calEvents = await fetchCalendarEvents(lastRange.startIso, lastRange.endIso, lastRange.tz);
+    dataVersion++;
+    setStatus(`Calendar connected — ${calEvents.length.toLocaleString()} event${calEvents.length === 1 ? "" : "s"} in range.`, "ok");
+  } catch (err) {
+    calEvents = [];
+    setStatus(calendarErrorNote(err).trim(), "error");
+  }
+  renderEpisodeTable();
+  scheduleCharts();
+}
 
 /* ==================== Proto3 zero-omission parsing ================== */
 // The API serializes protocol buffers to JSON and omits fields whose value is
@@ -487,6 +597,106 @@ function parseStepPoint(dp) {
   return { startMs, endMs, count };
 }
 
+/* ========================= Calendar events ========================= */
+// Events arrive on the absolute (physical) timeline; the charts run on the
+// civil-ms axis — wall-clock readings treated as if they were UTC. Both
+// conversions below land an event on that same axis.
+function instantToCivilMs(utcMs, tz) {
+  return Number.isFinite(utcMs) ? utcMs + tzOffsetMs(utcMs, tz) : NaN;
+}
+
+// "2026-08-05" -> the civil ms of that date's midnight. All-day events carry a
+// bare date with no zone, so it maps straight across with no offset math.
+function dateOnlyToCivilMs(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN;
+}
+
+function parseEvent(ev, tz) {
+  if (!ev || ev.status === "cancelled") return null;
+  // An invitation you turned down didn't happen to you, so it can't explain
+  // anything your heart did.
+  const me = (ev.attendees || []).find((a) => a.self);
+  if (me && me.responseStatus === "declined") return null;
+
+  const s = ev.start || {}, e = ev.end || {};
+  const allDay = Boolean(s.date);
+  let startMs, endMs;
+  if (allDay) {
+    startMs = dateOnlyToCivilMs(s.date);
+    // end.date is exclusive: a one-day event ends on the following date.
+    endMs = e.date ? dateOnlyToCivilMs(e.date) : startMs + 24 * HOUR;
+  } else {
+    if (!s.dateTime) return null;
+    startMs = instantToCivilMs(Date.parse(s.dateTime), tz);
+    endMs = e.dateTime ? instantToCivilMs(Date.parse(e.dateTime), tz) : startMs + 30 * MINUTE;
+  }
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  return {
+    startMs, endMs, allDay,
+    summary: ev.summary || "(no title)",
+    location: ev.location || ""
+  };
+}
+
+// timeMin/timeMax on events.list are overlap bounds, not containment bounds:
+// timeMin filters on the event's END and timeMax on its START, so an event
+// straddling either edge of the window still comes back. That is exactly the
+// "events overlapping the displayed interval" semantics we want.
+async function fetchCalendarEvents(startIso, endIso, tz) {
+  const out = [];
+  let pageToken = "";
+  let pages = 0;
+  do {
+    const url = new URL(CALENDAR_API);
+    url.searchParams.set("timeMin", startIso);
+    url.searchParams.set("timeMax", endIso);
+    url.searchParams.set("singleEvents", "true"); // expand recurrences to instances
+    url.searchParams.set("orderBy", "startTime"); // only legal with singleEvents
+    url.searchParams.set("maxResults", String(CAL_PAGE_SIZE));
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    setStatus(`Fetching calendar page ${pages + 1}… (${out.length.toLocaleString()} so far)`);
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${calendarToken}` } });
+    if (resp.status === 401) {
+      calendarToken = null;
+      $("calState").hidden = true;
+      throw new Error("Calendar token expired — click Connect calendar again.");
+    }
+    if (!resp.ok) {
+      const err = new Error(`Calendar API error ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+      err.status = resp.status;
+      throw err;
+    }
+    const body = await resp.json();
+    for (const ev of body.items || []) {
+      const p = parseEvent(ev, tz);
+      if (p) out.push(p);
+    }
+    pageToken = body.nextPageToken || "";
+    pages++;
+  } while (pageToken);
+  out.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+  return out;
+}
+
+function calendarErrorNote(err) {
+  if (err.status === 403) return " Calendar unavailable — enable the Calendar API and register its scope.";
+  return ` Calendar unavailable (${String(err.message || err).slice(0, 80)}).`;
+}
+
+// Events covering an instant, timed ones first (an all-day "Vacation" is
+// weaker context than the 10:00 meeting you were actually sitting in).
+function eventsAt(t) {
+  return calEvents
+    .filter((e) => t >= e.startMs && t < e.endMs)
+    .sort((a, b) => (a.allDay ? 1 : 0) - (b.allDay ? 1 : 0));
+}
+
+function eventsOverlapping(a, b, includeAllDay) {
+  return calEvents.filter((e) =>
+    e.startMs < b && e.endMs > a && (includeAllDay || !e.allDay));
+}
+
 /* ============================== Fetch ============================== */
 // Pages through one data type, pushing each parsed point into `sink`.
 // Returns the number of pages consumed.
@@ -533,8 +743,12 @@ $("fetchBtn").addEventListener("click", async () => {
   fetching = true; // no chart may draw (or cache buckets) from partial pages
   samples = [];
   stepIntervals = [];
+  calEvents = [];
   summaryBuckets = null;
+  dataVersion++;
+  lastRange = { startIso, endIso, tz };
   let stepsNote = "";
+  let calNote = "";
   try {
     const hrPages = await fetchAllPages({
       type: "heart-rate",
@@ -563,15 +777,30 @@ $("fetchBtn").addEventListener("click", async () => {
         : ` Steps unavailable (${String(stepErr.message || stepErr).slice(0, 80)}).`;
     }
 
+    // Calendar is context, not data: a failure here must never cost you the
+    // heart rate you came for.
+    if (calendarToken) {
+      try {
+        calEvents = await fetchCalendarEvents(startIso, endIso, tz);
+      } catch (calErr) {
+        calEvents = [];
+        calNote = calendarErrorNote(calErr);
+      }
+    }
+
     samples.sort((a, b) => a.civilMs - b.civilMs);
     $("csvBtn").disabled = samples.length === 0;
     if (samples.length === 0) {
-      setStatus("No heart rate samples in that range." + stepsNote, "error");
+      setStatus("No heart rate samples in that range." + stepsNote + calNote, "error");
     } else {
+      const calPart = calendarToken && !calNote
+        ? `, ${calEvents.length.toLocaleString()} calendar event${calEvents.length === 1 ? "" : "s"}`
+        : "";
       setStatus(`Loaded ${samples.length.toLocaleString()} heart rate samples in ` +
                 `${hrPages} page${hrPages > 1 ? "s" : ""}, ` +
-                `${stepIntervals.length.toLocaleString()} step intervals.` + stepsNote,
-                stepsNote ? "" : "ok");
+                `${stepIntervals.length.toLocaleString()} step intervals${calPart}.` +
+                stepsNote + calNote,
+                (stepsNote || calNote) ? "" : "ok");
       const mid = samples[Math.floor(samples.length / 2)].civilMs;
       detailStartMs = mid - DETAIL_HALF;
       detailEndMs = mid + DETAIL_HALF;
@@ -594,6 +823,7 @@ $("fetchBtn").addEventListener("click", async () => {
     // Derive activity + classification from the final, complete datasets.
     stepIntervals.sort((a, b) => a.startMs - b.startMs);
     classifyTimeline();
+    renderEpisodeTable();
     // Order matters: buckets may only be computed after fetching is false and
     // samples are final, so clear the cache and lift the draw block together,
     // then schedule one clean draw.
@@ -788,6 +1018,144 @@ function renderDailyTable() {
   </table>`;
 }
 
+/* ==================== Calendar context rendering =================== */
+// Event titles are arbitrary user text going into innerHTML — escape them.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const clock = (t) => { const d = new Date(t); return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; };
+const dayShort = (t) => new Date(t).toLocaleDateString("en-US",
+  { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+
+// Span label, with the date shown only when the span isn't inside one day.
+function spanLabel(a, b) {
+  const DAY = 24 * HOUR;
+  const sameDay = Math.floor(a / DAY) === Math.floor((b - 1) / DAY);
+  return sameDay
+    ? `${dayShort(a)} ${clock(a)}–${clock(b)}`
+    : `${dayShort(a)} ${clock(a)} – ${dayShort(b)} ${clock(b)}`;
+}
+
+// Index of the first sample at or after t. Samples are sorted by civilMs.
+function lowerBound(t) {
+  let lo = 0, hi = samples.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (samples[mid].civilMs < t) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+// Median / max bpm across [a, b). Median rather than mean for the same reason
+// the classifier uses it: one bad optical read shouldn't move the number.
+function bpmStats(a, b) {
+  const i = lowerBound(a), j = lowerBound(b);
+  if (j <= i) return null;
+  const vals = new Array(j - i);
+  let max = -Infinity;
+  for (let k = i; k < j; k++) {
+    const v = samples[k].bpm;
+    vals[k - i] = v;
+    if (v > max) max = v;
+  }
+  vals.sort((x, y) => x - y);
+  return { median: Math.round(vals[vals.length >> 1]), max, n: vals.length };
+}
+
+function eventCauseCell(a, b) {
+  const evs = eventsOverlapping(a, b, true);
+  if (!evs.length) return "—";
+  return evs.slice(0, 6).map((e) => e.allDay
+      ? `<span class="ev">${esc(e.summary)}</span> <span class="ev-when">(all day)</span>`
+      : `<span class="ev">${esc(e.summary)}</span> <span class="ev-when">${clock(e.startMs)}–${clock(e.endMs)}</span>`)
+    .join("<br>") + (evs.length > 6 ? `<br><span class="ev-when">+${evs.length - 6} more</span>` : "");
+}
+
+// The event list tracks the detail window, which moves on every drag frame —
+// so skip the re-render unless the window or the underlying data changed.
+let eventListKey = "";
+function renderEventList() {
+  const host = $("eventList");
+  const note = $("allDayNote");
+  const key = `${detailStartMs}|${detailEndMs}|${dataVersion}`;
+  if (key === eventListKey) return;
+  eventListKey = key;
+
+  if (!calendarToken || detailStartMs == null) {
+    $("eventsTitle").textContent = "On the calendar";
+    note.innerHTML = "";
+    host.innerHTML = calendarToken
+      ? ""
+      : `<p class="empty">Click <strong>Connect calendar</strong> above to overlay your primary calendar on these charts.</p>`;
+    return;
+  }
+
+  const allDay = eventsOverlapping(detailStartMs, detailEndMs, true).filter((e) => e.allDay);
+  note.innerHTML = allDay.length
+    ? `<p class="allday-note">All day: ${allDay.map((e) => `<span class="ev">${esc(e.summary)}</span>`).join(", ")}</p>`
+    : "";
+
+  const timed = eventsOverlapping(detailStartMs, detailEndMs, false);
+  $("eventsTitle").textContent =
+    `On the calendar — ${timed.length} event${timed.length === 1 ? "" : "s"} in view`;
+  if (!timed.length) {
+    host.innerHTML = `<p class="empty">Nothing scheduled in this window${allDay.length ? " beyond the all-day entries above" : ""}.</p>`;
+    return;
+  }
+
+  const rows = timed.map((e) => {
+    const st = bpmStats(e.startMs, e.endMs);
+    const eps = episodes.filter((ep) => ep.start < e.endMs && ep.end > e.startMs);
+    const kinds = [...new Set(eps.map((ep) => ep.kind))];
+    return `<tr>
+      <td class="when">${clock(e.startMs)}–${clock(e.endMs)}</td>
+      <td class="num">${fmtDuration(e.endMs - e.startMs)}</td>
+      <td>${esc(e.summary)}${e.location ? `<br><span class="ev-when">${esc(e.location)}</span>` : ""}</td>
+      <td class="num">${st ? st.median : "—"}</td>
+      <td class="num">${st ? st.max : "—"}</td>
+      <td>${kinds.map((k) => `<span class="kind ${k}">${k}</span>`).join(" ") || "—"}</td>
+    </tr>`;
+  }).join("");
+
+  host.innerHTML = `<table>
+    <thead><tr>
+      <th>Time</th><th class="num">Length</th><th>Event</th>
+      <th class="num">Median&nbsp;bpm</th><th class="num">Max&nbsp;bpm</th><th>Overlapping</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderEpisodeTable() {
+  const host = $("episodeTable");
+  if (!episodes.length) {
+    host.innerHTML = samples.length
+      ? `<p class="empty">No elevated episodes in this range.</p>`
+      : "";
+    return;
+  }
+  const rows = episodes.map((e) => {
+    const st = bpmStats(e.start, e.end);
+    return `<tr>
+      <td class="when">${spanLabel(e.start, e.end)}</td>
+      <td class="num">${fmtDuration(e.end - e.start)}</td>
+      <td><span class="kind ${e.kind}">${e.kind}</span></td>
+      <td class="num">${st ? st.max : "—"}</td>
+      <td class="cause">${calendarToken ? eventCauseCell(e.start, e.end) : "—"}</td>
+    </tr>`;
+  }).join("");
+  host.innerHTML = `<table>
+    <thead><tr>
+      <th>When</th><th class="num">Length</th><th>Attributed to</th>
+      <th class="num">Peak&nbsp;bpm</th><th>On the calendar at the time</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 /* =============================== CSV =============================== */
 function csvField(v) {
   const s = String(v);
@@ -796,7 +1164,7 @@ function csvField(v) {
 
 $("csvBtn").addEventListener("click", () => {
   const pad = (n) => String(n).padStart(2, "0");
-  const lines = ["device_name,civil_time,beats_per_minute,steps_per_min,state"];
+  const lines = ["device_name,civil_time,beats_per_minute,steps_per_min,state,calendar_events"];
   // Both samples and episodes are sorted, so walk them together with a moving
   // pointer instead of rescanning the episode list for every sample.
   let ei = 0;
@@ -807,10 +1175,16 @@ $("csvBtn").addEventListener("click", () => {
     while (ei < episodes.length && episodes[ei].end <= s.civilMs) ei++;
     const ep = episodes[ei];
     const state = ep && s.civilMs >= ep.start && s.civilMs < ep.end ? ep.kind : "";
+    // Few events against many samples, so a plain scan beats maintaining an
+    // index — and events overlap each other, which a moving pointer can't.
+    const evs = calEvents.length
+      ? eventsAt(s.civilMs).map((e) => e.summary).join("; ")
+      : "";
     lines.push([
       csvField(s.device), t, s.bpm,
       cad === undefined ? "" : Math.round(cad),
-      state
+      state,
+      csvField(evs)
     ].join(","));
   }
   const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
@@ -858,13 +1232,20 @@ function niceYBounds(values) {
   return [lo, hi];
 }
 
-// bottom leaves room for the episode lane (just under the plot) and then the
-// time tick labels below it.
-const LANE_TOP = 5, LANE_H = 11;
+// bottom leaves room for the episode lane (just under the plot), the calendar
+// lane below it when there are events, and then the time tick labels.
+const LANE_TOP = 5, LANE_H = 11, LANE_GAP = 2;
 const PLOT = { left: 44, right: 10, top: 22, bottom: 42 };
 
+// The calendar lane costs vertical space, so it only exists when it has
+// something to show; every layout measurement below routes through these.
+const eventLaneShown = () => calEvents.length > 0;
+const lanesH = () => LANE_H + (eventLaneShown() ? LANE_GAP + LANE_H : 0);
+const lanesBottomY = (y0) => y0 + LANE_TOP + lanesH();
+
 function makeScales(w, h, t0, t1, yLo, yHi) {
-  const px = { x0: PLOT.left, x1: w - PLOT.right, y0: h - PLOT.bottom, y1: PLOT.top };
+  const bottom = PLOT.bottom + (eventLaneShown() ? LANE_GAP + LANE_H : 0);
+  const px = { x0: PLOT.left, x1: w - PLOT.right, y0: h - bottom, y1: PLOT.top };
   return {
     x: (t) => px.x0 + (t - t0) / (t1 - t0) * (px.x1 - px.x0),
     y: (v) => px.y0 - (v - yLo) / (yHi - yLo) * (px.y0 - px.y1),
@@ -947,7 +1328,7 @@ function drawTimeTicks(ctx, sc, t0, t1) {
   for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) {
     const d = new Date(t);
     ctx.fillText(`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
-                 sc.x(t), sc.px.y0 + LANE_TOP + LANE_H + 4);
+                 sc.x(t), lanesBottomY(sc.px.y0) + 4);
     ctx.strokeStyle = "rgba(28, 36, 49, 0.12)";
     ctx.beginPath(); ctx.moveTo(sc.x(t), sc.px.y0); ctx.lineTo(sc.x(t), sc.px.y0 + 3); ctx.stroke();
   }
@@ -983,6 +1364,81 @@ function drawEpisodeLane(ctx, sc, t0, t1) {
     ctx.fillStyle = e.kind === "stress" ? css("--pulse-red") : css("--activity");
     ctx.fillRect(r[0], y + 2, Math.max(1, r[1]), LANE_H - 4);
   }
+}
+
+// A second lane, under the episode lane: what was on the calendar. Timed
+// events read solid, all-day events as a pale wash behind them (they are
+// weaker context and would otherwise swamp the row). With `labels` on, titles
+// are drawn into any block wide enough to hold one.
+function drawEventLane(ctx, sc, t0, t1, labels) {
+  if (!eventLaneShown()) return;
+  const y = sc.px.y0 + LANE_TOP + LANE_H + LANE_GAP;
+  ctx.fillStyle = "rgba(28, 36, 49, 0.05)";
+  ctx.fillRect(sc.px.x0, y, sc.px.x1 - sc.px.x0, LANE_H);
+
+  const visible = [];
+  for (const e of calEvents) {
+    if (e.startMs >= t1 || e.endMs <= t0) continue;
+    const xa = Math.max(sc.px.x0, sc.x(Math.max(e.startMs, t0)));
+    const xb = Math.min(sc.px.x1, sc.x(Math.min(e.endMs, t1)));
+    if (xb < xa) continue;
+    visible.push({ e, xa, w: Math.max(2, xb - xa) });
+  }
+
+  // All-day first so timed blocks land on top of them.
+  for (const v of visible) {
+    if (!v.e.allDay) continue;
+    ctx.fillStyle = css("--event");
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(v.xa, y, v.w, LANE_H);
+    ctx.globalAlpha = 1;
+  }
+  for (const v of visible) {
+    if (v.e.allDay) continue;
+    ctx.fillStyle = css("--event");
+    ctx.globalAlpha = 0.75;
+    ctx.fillRect(v.xa, y + 1, v.w, LANE_H - 2);
+    ctx.globalAlpha = 1;
+  }
+
+  if (!labels) return;
+  ctx.font = "9px " + css("--sans");
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  let lastLabelEnd = -Infinity;
+  for (const v of visible) {
+    if (v.e.allDay || v.w < 34 || v.xa < lastLabelEnd + 4) continue;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(v.xa + 2, y, v.w - 4, LANE_H);
+    ctx.clip();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(v.e.summary, v.xa + 4, y + LANE_H / 2 + 0.5);
+    ctx.restore();
+    lastLabelEnd = v.xa + v.w;
+  }
+}
+
+// Faint vertical rules at event boundaries in the detail chart, so a heart
+// rate step can be lined up against the moment something started or ended.
+function drawEventEdges(ctx, sc, t0, t1) {
+  if (!eventLaneShown()) return;
+  ctx.save();
+  ctx.strokeStyle = css("--event");
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 4]);
+  for (const e of calEvents) {
+    if (e.allDay) continue;
+    for (const t of [e.startMs, e.endMs]) {
+      if (t <= t0 || t >= t1) continue;
+      ctx.beginPath();
+      ctx.moveTo(sc.x(t), sc.px.y1);
+      ctx.lineTo(sc.x(t), sc.px.y0);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 // Full-height wash behind the detail plot so an episode is unmissable.
@@ -1073,6 +1529,7 @@ function drawSummary() {
   drawThresholds(ctx, sc, yLo, yHi);
   drawTimeTicks(ctx, sc, t0, t1);
   drawEpisodeLane(ctx, sc, t0, t1);
+  drawEventLane(ctx, sc, t0, t1, false);
 
   // Band: one quad per adjacent bucket pair, colored by the left bucket, so a
   // stressed region reads red even mid-gradient. Gaps (missing buckets) break
@@ -1242,8 +1699,12 @@ function drawDetail() {
   drawYAxis(ctx, sc, yLo, yHi);
   drawThresholds(ctx, sc, yLo, yHi);
   drawTimeTicks(ctx, sc, t0, t1);
+  drawEventEdges(ctx, sc, t0, t1);
   drawCadence(ctx, sc, t0, t1);
   drawEpisodeLane(ctx, sc, t0, t1);
+  drawEventLane(ctx, sc, t0, t1, true);
+
+  renderEventList();
 
   if (!visible.length) {
     ctx.fillStyle = css("--ink-soft");
@@ -1335,24 +1796,50 @@ function drawDetail() {
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // tooltip: "72 bpm" over "14:23:45"
+    // tooltip: "72 bpm", the clock time, then whatever context we have —
+    // cadence, the episode's attribution, and what the calendar says was
+    // happening at that moment.
     const c = s.civil;
     const pad = (n) => String(n).padStart(2, "0");
-    const line1 = `${s.bpm} bpm`;
-    const line2 = `${pad(c.hh)}:${pad(c.mm)}:${pad(c.ss)}`;
+    const bpmColor = s.bpm > 100 ? css("--pulse-red") : (s.bpm < 90 ? css("--calm-green") : css("--ink"));
     const cad = cadence ? cadence.get(Math.floor(s.civilMs / MINUTE) * MINUTE) : undefined;
     const ep = episodes.find((e) => s.civilMs >= e.start && s.civilMs < e.end);
-    const line3 = [
+    const context = [
       cad !== undefined ? `${Math.round(cad)} steps/min` : null,
       ep ? ep.kind : null
     ].filter(Boolean).join(" · ");
-    ctx.font = "600 12px " + css("--mono");
-    const tw = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width,
-                        line3 ? ctx.measureText(line3).width : 0);
-    const boxW = tw + 16, boxH = line3 ? 48 : 34, off = 10;
+
+    const lines = [
+      { text: `${s.bpm} bpm`, color: bpmColor, font: "600 12px " + css("--mono") },
+      { text: `${pad(c.hh)}:${pad(c.mm)}:${pad(c.ss)}`, color: css("--ink-soft"), font: "12px " + css("--mono") }
+    ];
+    if (context) {
+      lines.push({
+        text: context,
+        color: ep && ep.kind === "stress" ? css("--pulse-red") : css("--activity"),
+        font: "12px " + css("--mono")
+      });
+    }
+    // Two titles is enough to jog a memory; more just makes an unreadable box.
+    for (const ev of eventsAt(s.civilMs).slice(0, 2)) {
+      const title = ev.summary.length > 30 ? ev.summary.slice(0, 29) + "…" : ev.summary;
+      lines.push({
+        text: `▸ ${title}${ev.allDay ? " (all day)" : ""}`,
+        color: css("--event"),
+        font: "12px " + css("--sans")
+      });
+    }
+
+    const LINE_H = 14;
+    let tw = 0;
+    for (const ln of lines) {
+      ctx.font = ln.font;
+      tw = Math.max(tw, ctx.measureText(ln.text).width);
+    }
+    const boxW = tw + 16, boxH = lines.length * LINE_H + 6, off = 10;
     let bx = gx + off;
     if (bx + boxW > d.sc.px.x1) bx = gx - off - boxW; // flip left near right edge
-    let by = d.sc.px.y1 + 4;
+    const by = d.sc.px.y1 + 4;
 
     ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
     ctx.strokeStyle = "rgba(28, 36, 49, 0.25)";
@@ -1362,15 +1849,11 @@ function drawDetail() {
 
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = s.bpm > 100 ? css("--pulse-red") : (s.bpm < 90 ? css("--calm-green") : css("--ink"));
-    ctx.fillText(line1, bx + 8, by + 15);
-    ctx.fillStyle = css("--ink-soft");
-    ctx.font = "12px " + css("--mono");
-    ctx.fillText(line2, bx + 8, by + 29);
-    if (line3) {
-      ctx.fillStyle = ep && ep.kind === "stress" ? css("--pulse-red") : css("--activity");
-      ctx.fillText(line3, bx + 8, by + 43);
-    }
+    lines.forEach((ln, i) => {
+      ctx.font = ln.font;
+      ctx.fillStyle = ln.color;
+      ctx.fillText(ln.text, bx + 8, by + 15 + i * LINE_H);
+    });
     ctx.restore();
   });
 
@@ -1406,6 +1889,7 @@ function scheduleCharts() {
     chartsRaf = 0;
     drawSummary();
     drawDetail();
+    renderEventList(); // covers the paths where drawDetail bails out early
   });
 }
 
